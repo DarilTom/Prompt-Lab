@@ -1,6 +1,45 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+
+import { loginUser } from "../../services/authService";
 
 function Login() {
+    const navigate = useNavigate();
+
+const [formData, setFormData] = useState({
+  email: "",
+  password: "",
+});
+
+const [error, setError] = useState("");
+const [loading, setLoading] = useState(false);
+
+function handleChange(event) {
+  const { name, value } = event.target;
+
+  setFormData((current) => ({
+    ...current,
+    [name]: value,
+  }));
+}
+
+async function handleSubmit(event) {
+  event.preventDefault();
+
+  setError("");
+  setLoading(true);
+
+  try {
+    await loginUser(formData);
+
+    // Temporary destination until we build the dashboard.
+    navigate("/dashboard");
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+}
   return (
     <main className="min-h-dvh bg-background text-ink">
       <div className="grid min-h-dvh lg:grid-cols-2">
@@ -31,7 +70,7 @@ function Login() {
             </div>
 
             {/* Login form */}
-            <form className="mt-10 space-y-5">
+            <form className="mt-10 space-y-5" onSubmit={handleSubmit}>
               {/* Email */}
               <div>
                 <label
@@ -45,6 +84,8 @@ function Login() {
                   id="email"
                   name="email"
                   type="email"
+                  value={formData.email}
+                  onChange={handleChange}
                   autoComplete="email"
                   placeholder="you@example.com"
                   className="w-full rounded-control border border-border bg-surface px-4 py-3 text-sm text-ink outline-none transition-standard placeholder:text-muted/60 focus:border-brand focus:ring-2 focus:ring-brand/10"
@@ -73,6 +114,8 @@ function Login() {
                   id="password"
                   name="password"
                   type="password"
+                  value={formData.password}
+                  onChange={handleChange}
                   autoComplete="current-password"
                   placeholder="Enter your password"
                   className="w-full rounded-control border border-border bg-surface px-4 py-3 text-sm text-ink outline-none transition-standard placeholder:text-muted/60 focus:border-brand focus:ring-2 focus:ring-brand/10"
@@ -81,11 +124,18 @@ function Login() {
 
               {/* Submit */}
               <button
-                type="submit"
-                className="w-full rounded-control bg-brand px-5 py-3 text-sm font-semibold text-white transition-standard hover:opacity-90"
-              >
-                Sign In
-              </button>
+  type="submit"
+  disabled={loading}
+  className="w-full rounded-control bg-brand px-5 py-3 text-sm font-semibold text-white transition-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+>
+  {loading ? "Signing in..." : "Sign In"}
+</button>
+                {error && (
+  <p className="text-sm text-error" role="alert">
+    {error}
+  </p>
+)}
+            
 
               {/* Divider */}
               <div className="flex items-center gap-3">

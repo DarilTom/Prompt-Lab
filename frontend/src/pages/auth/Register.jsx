@@ -1,6 +1,49 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { registerUser } from "../../services/authService";
 
 function Register() {
+    const navigate = useNavigate();
+
+const [formData, setFormData] = useState({
+  name: "",
+  email: "",
+  password: "",
+  password_confirm: "",
+});
+
+const [error, setError] = useState("");
+const [loading, setLoading] = useState(false);
+
+function handleChange(event) {
+  const { name, value } = event.target;
+
+  setFormData((current) => ({
+    ...current,
+    [name]: value,
+  }));
+}
+
+async function handleSubmit(event) {
+  event.preventDefault();
+  setError("");
+
+  if (formData.password !== formData.password_confirm) {
+    setError("Passwords do not match.");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    await registerUser(formData);
+    navigate("/login");
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+}
   return (
     <main className="min-h-dvh bg-background text-ink">
       <div className="grid min-h-dvh lg:grid-cols-2">
@@ -31,7 +74,7 @@ function Register() {
             </div>
 
             {/* Registration form */}
-            <form className="mt-10 space-y-5">
+            <form className="mt-10 space-y-5" onSubmit={handleSubmit}>
               {/* Full name */}
               <div>
                 <label
@@ -45,6 +88,8 @@ function Register() {
                   id="name"
                   name="name"
                   type="text"
+                  value={formData.name}
+                  onChange={handleChange}
                   autoComplete="name"
                   placeholder="Your name"
                   className="w-full rounded-control border border-border bg-surface px-4 py-3 text-sm text-ink outline-none transition-standard placeholder:text-muted/60 focus:border-brand focus:ring-2 focus:ring-brand/10"
@@ -64,6 +109,8 @@ function Register() {
                   id="email"
                   name="email"
                   type="email"
+                  value={formData.email}
+                  onChange={handleChange}
                   autoComplete="email"
                   placeholder="you@example.com"
                   className="w-full rounded-control border border-border bg-surface px-4 py-3 text-sm text-ink outline-none transition-standard placeholder:text-muted/60 focus:border-brand focus:ring-2 focus:ring-brand/10"
@@ -83,6 +130,8 @@ function Register() {
                   id="password"
                   name="password"
                   type="password"
+                  value={formData.password}
+                  onChange={handleChange}
                   autoComplete="new-password"
                   placeholder="Create a password"
                   className="w-full rounded-control border border-border bg-surface px-4 py-3 text-sm text-ink outline-none transition-standard placeholder:text-muted/60 focus:border-brand focus:ring-2 focus:ring-brand/10"
@@ -100,8 +149,10 @@ function Register() {
 
                 <input
                   id="confirmPassword"
-                  name="confirmPassword"
+                  name="password_confirm"
                   type="password"
+                  value={formData.password_confirm}
+                  onChange={handleChange}
                   autoComplete="new-password"
                   placeholder="Repeat your password"
                   className="w-full rounded-control border border-border bg-surface px-4 py-3 text-sm text-ink outline-none transition-standard placeholder:text-muted/60 focus:border-brand focus:ring-2 focus:ring-brand/10"
@@ -109,12 +160,19 @@ function Register() {
               </div>
 
               {/* Submit */}
-              <button
-                type="submit"
-                className="w-full rounded-control bg-brand px-5 py-3 text-sm font-semibold text-white transition-standard hover:opacity-90"
-              >
-                Create Account
-              </button>
+              
+                {error && (
+  <p className="text-sm text-error" role="alert">
+    {error}
+  </p>
+)}
+               <button
+  type="submit"
+  disabled={loading}
+  className="w-full rounded-control bg-brand px-5 py-3 text-sm font-semibold text-white transition-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+>
+  {loading ? "Creating account..." : "Create Account"}
+</button>
 
               {/* Divider */}
               <div className="flex items-center gap-3">
