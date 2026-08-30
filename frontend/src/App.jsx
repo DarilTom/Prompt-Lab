@@ -1,22 +1,48 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Landing from "./pages/Landing";
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
-import Dashboard from "./pages/dashboard/Dashboard";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+
+// Dashboard shell + pages
+import DashboardLayout from "./components/dashboard/DashboardLayout";
+import Overview from "./pages/dashboard/Overview";
+
+// Placeholder for future pages — swap out when built
+function ComingSoon({ label }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted">{label}</p>
+      <p className="mt-2 font-serif text-2xl text-ink">Coming soon</p>
+      <p className="mt-1 text-sm text-muted">This section is under construction.</p>
+    </div>
+  );
+}
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public */}
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
+        {/* Authenticated dashboard */}
         <Route element={<ProtectedRoute />}>
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route index element={<Overview />} />
+            <Route path="prompts" element={<ComingSoon label="Prompts" />} />
+            <Route path="executions" element={<ComingSoon label="Executions" />} />
+            <Route path="comparisons" element={<ComingSoon label="Comparisons" />} />
+            <Route path="analytics" element={<ComingSoon label="Analytics" />} />
+            <Route path="settings" element={<ComingSoon label="Settings" />} />
+          </Route>
         </Route>
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

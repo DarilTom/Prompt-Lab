@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { loginUser } from "../../services/authService";
+import { useAuth } from "../../context/AuthContext";
+import {
+  getCurrentUser,
+  loginUser,
+} from "../../services/authService";
 
 function Login() {
     const navigate = useNavigate();
+    const { setUser } = useAuth();
 
 const [formData, setFormData] = useState({
   email: "",
@@ -30,15 +35,17 @@ async function handleSubmit(event) {
   setLoading(true);
 
   try {
-    await loginUser(formData);
+  await loginUser(formData);
 
-    // Temporary destination until we build the dashboard.
-    navigate("/dashboard");
-  } catch (err) {
-    setError(err.message);
-  } finally {
-    setLoading(false);
-  }
+  const currentUser = await getCurrentUser();
+  setUser(currentUser);
+
+  navigate("/dashboard");
+} catch (err) {
+  setError(err.message);
+} finally {
+  setLoading(false);
+}
 }
   return (
     <main className="min-h-dvh bg-background text-ink">
