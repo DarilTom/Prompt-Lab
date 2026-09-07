@@ -4,10 +4,19 @@ import Landing from "./pages/Landing";
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import PromptDetail from "./pages/dashboard/PromptDetail";
+
 
 // Dashboard shell + pages
 import DashboardLayout from "./components/dashboard/DashboardLayout";
 import Overview from "./pages/dashboard/Overview";
+import Prompts from "./pages/dashboard/Prompts";
+import NewPrompt from "./pages/dashboard/NewPrompt";
+import Executions from "./pages/dashboard/Executions";
+import ExecutionDetail from "./pages/dashboard/ExecutionDetail";
+import Comparisons from "./pages/dashboard/Comparisons";
+import Analytics from "./pages/dashboard/Analytics";
+
 
 // Placeholder for future pages — swap out when built
 function ComingSoon({ label }) {
@@ -28,15 +37,19 @@ function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/prompts" element={<Prompts />} />
 
         {/* Authenticated dashboard */}
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<Overview />} />
-            <Route path="prompts" element={<ComingSoon label="Prompts" />} />
-            <Route path="executions" element={<ComingSoon label="Executions" />} />
-            <Route path="comparisons" element={<ComingSoon label="Comparisons" />} />
-            <Route path="analytics" element={<ComingSoon label="Analytics" />} />
+            <Route path="prompts" element={<Prompts />} />
+            <Route path="prompts/new" element={<NewPrompt />} />
+            <Route path="prompts/:id" element={<PromptDetail />} />
+            <Route path="executions" element={<Executions />} />
+            <Route path="executions/:id" element={<ExecutionDetail />} />
+            <Route path="comparisons" element={<Comparisons />} />
+            <Route path="analytics"element={<Analytics />}/>
             <Route path="settings" element={<ComingSoon label="Settings" />} />
           </Route>
         </Route>

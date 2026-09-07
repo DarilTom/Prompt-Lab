@@ -1,7 +1,11 @@
 import { apiRequest } from "./api";
-
-const ACCESS_TOKEN_KEY = "prompt_lab_access";
-const REFRESH_TOKEN_KEY = "prompt_lab_refresh";
+import {
+  clearTokens,
+  getAccessToken as readAccessToken,
+  getRefreshToken,
+  setAccessToken,
+  setTokens,
+} from "./tokenService";
 
 export async function registerUser({
   name,
@@ -29,33 +33,13 @@ export async function loginUser({ email, password }) {
     }),
   });
 
-  sessionStorage.setItem(ACCESS_TOKEN_KEY, data.access);
-  sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refresh);
+  setTokens(data);
 
   return data;
 }
 
-export async function refreshAccessToken() {
-  const refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY);
-
-  if (!refreshToken) {
-    return null;
-  }
-
-  const data = await apiRequest("/auth/token/refresh/", {
-    method: "POST",
-    body: JSON.stringify({
-      refresh: refreshToken,
-    }),
-  });
-
-  sessionStorage.setItem(ACCESS_TOKEN_KEY, data.access);
-
-  return data.access;
-}
-
 export async function getCurrentUser() {
-  const accessToken = sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  const accessToken = readAccessToken();
 
   if (!accessToken) {
     return null;
@@ -68,11 +52,46 @@ export async function getCurrentUser() {
   });
 }
 
+export async function refreshAccessToken() {
+  const refreshToken = getRefreshToken();
+
+  if (!refreshToken) {
+    return null;
+  }
+
+  const response = await fetch(
+    "http://127.0.0.1:8000/api/auth/token/refresh/",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        refresh: refreshToken,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    clearTokens();
+    return null;
+  }
+
+  const data = await response.json();
+
+  setAccessToken(data.access);
+
+  return data.access;
+}
+
+/*
+ * Kept as getAccessToken because AuthContext already
+ * expects this public function from authService.
+ */
 export function getAccessToken() {
-  return sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  return readAccessToken();
 }
 
 export function logoutUser() {
-  sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-  sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+  clearTokens();
 }
