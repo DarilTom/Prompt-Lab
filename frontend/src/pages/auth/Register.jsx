@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { registerUser } from "../../services/authService";
+import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
+import {
+  getCurrentUser,
+  loginWithGoogle,
+} from "../../services/authService";
+
 
 function Register() {
     const navigate = useNavigate();
@@ -40,6 +46,22 @@ async function handleSubmit(event) {
     navigate("/login");
   } catch (err) {
     setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleGoogleSuccess(credential) {
+  try {
+    setLoading(true);
+    setError("");
+
+    await loginWithGoogle(credential);
+
+    await loginWithGoogle(credential);
+navigate("/dashboard");
+  } catch (err) {
+    setError(err.message || "Google Sign-In failed.");
   } finally {
     setLoading(false);
   }
@@ -186,12 +208,10 @@ async function handleSubmit(event) {
               </div>
 
               {/* Google */}
-              <button
-                type="button"
-                className="w-full rounded-control border border-border bg-surface px-5 py-3 text-sm font-medium text-ink transition-standard hover:border-ink"
-              >
-                Continue with Google
-              </button>
+              <GoogleSignInButton
+  onSuccess={handleGoogleSuccess}
+  onError={setError}
+/>
             </form>
 
             {/* Login link */}

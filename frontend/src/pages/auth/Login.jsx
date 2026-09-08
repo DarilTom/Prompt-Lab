@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import GoogleSignInButton from "../../components/auth/GoogleSignInButton";
 import { useAuth } from "../../context/AuthContext";
 import {
   getCurrentUser,
   loginUser,
+  loginWithGoogle,
 } from "../../services/authService";
 
 function Login() {
@@ -46,6 +48,24 @@ async function handleSubmit(event) {
 } finally {
   setLoading(false);
 }
+}
+
+async function handleGoogleSuccess(credential) {
+  try {
+    setLoading(true);
+    setError("");
+
+    await loginWithGoogle(credential);
+
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);
+
+    navigate("/dashboard");
+  } catch (err) {
+    setError(err.message || "Google Sign-In failed.");
+  } finally {
+    setLoading(false);
+  }
 }
   return (
     <main className="min-h-dvh bg-background text-ink">
@@ -109,12 +129,12 @@ async function handleSubmit(event) {
                     Password
                   </label>
 
-                  <button
-                    type="button"
-                    className="text-sm text-muted transition-standard hover:text-brand"
-                  >
-                    Forgot password?
-                  </button>
+                  <Link
+  to="/forgot-password"
+  className="text-sm text-muted transition-standard hover:text-brand"
+>
+  Forgot password?
+</Link>
                 </div>
 
                 <input
@@ -156,12 +176,10 @@ async function handleSubmit(event) {
               </div>
 
               {/* Google */}
-              <button
-                type="button"
-                className="w-full rounded-control border border-border bg-surface px-5 py-3 text-sm font-medium text-ink transition-standard hover:border-ink"
-              >
-                Continue with Google
-              </button>
+              <GoogleSignInButton
+  onSuccess={handleGoogleSuccess}
+  onError={setError}
+/>
             </form>
 
             {/* Register link */}

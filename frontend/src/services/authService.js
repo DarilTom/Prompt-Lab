@@ -95,3 +95,40 @@ export function getAccessToken() {
 export function logoutUser() {
   clearTokens();
 }
+
+export async function requestPasswordReset(email) {
+  return apiRequest("/auth/password-reset/", {
+    method: "POST",
+    body: JSON.stringify({
+      email,
+    }),
+  });
+}
+
+export async function confirmPasswordReset({
+  uid,
+  token,
+  password,
+  password_confirm,
+}) {
+  return apiRequest(
+    `/auth/password-reset-confirm/${uid}/${token}/`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        password,
+        password_confirm,
+      }),
+    }
+  );
+}
+
+export async function loginWithGoogle(credential) {
+  const data = await apiRequest("/auth/google/", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+
+  setTokens(data);
+  return data;
+}
