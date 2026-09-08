@@ -1,56 +1,39 @@
 import Container from '../ui/Container'
 import SectionHeading from '../ui/SectionHeading'
 
-const metrics = [
+const concepts = [
   {
-    value: '8.4',
-    unit: '/ 10',
-    label: 'Clarity',
-    note: 'Sample run · support-reply v4',
+    n: '01',
+    title: 'Iteration',
+    body: 'Prompt refinement is an experimental loop, not a single conversation. Each version is a hypothesis waiting to be tested against a fixed case.',
   },
   {
-    value: '3',
-    unit: 'runs',
-    label: 'Consistency',
-    note: 'Same case, locked settings',
+    n: '02',
+    title: 'Measurement',
+    body: 'Every execution captures output, latency, and token use. The record exists so decisions can be revisited, not reconstructed from memory.',
   },
   {
-    value: '−57%',
-    unit: 'tokens',
-    label: 'Length',
-    note: 'v3 142 → v4 61',
-  },
-  {
-    value: 'v4',
-    unit: 'kept',
-    label: 'Decision',
-    note: 'Winner on action + clarity',
+    n: '03',
+    title: 'Comparison',
+    body: 'Progress is visible only when versions are placed side by side. Prompt Lab makes that comparison the default step — not an afterthought.',
   },
 ]
 
 export default function Research() {
   return (
-    <section id="research" className="scroll-mt-20 py-section">
+    <section id='research' className='scroll-mt-20 py-section'>
       <Container>
         <SectionHeading
-          eyebrow="Research"
-          title="Measure the draft, not the vibe."
-          description="Metrics are attached to a named experiment. These figures are a static sample of what the lab will record — not live data."
+          eyebrow='Research'
+          title='Built for experimentation, not just generation.'
+          description='Prompt engineering is iterative. Prompt Lab treats prompts as versioned artifacts so experiments can be executed, measured, compared, and refined.'
         />
-        <div className="mt-roomy grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {metrics.map((metric) => (
-            <article
-              key={metric.label}
-              className="rounded-card border border-border bg-surface px-5 py-6 shadow-subtle"
-            >
-              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
-                {metric.label}
-              </p>
-              <p className="mt-3 font-serif text-4xl tracking-tight text-ink">
-                {metric.value}
-                <span className="ml-1 font-mono text-sm text-muted">{metric.unit}</span>
-              </p>
-              <p className="mt-stack font-mono text-xs text-muted">{metric.note}</p>
+        <div className='mt-roomy grid gap-6 sm:grid-cols-3'>
+          {concepts.map((c) => (
+            <article key={c.n} className='border-t-2 border-brand pt-5'>
+              <p className='font-mono text-xs text-brand'>{c.n} &#8212;</p>
+              <h3 className='mt-tight font-sans text-base font-semibold text-ink'>{c.title}</h3>
+              <p className='mt-stack text-sm leading-relaxed text-muted'>{c.body}</p>
             </article>
           ))}
         </div>
