@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "apps.executions",
     "apps.comparisons",
     "apps.analytics",
+    "apps.evaluations",
 ]
 
 MIDDLEWARE = [

@@ -15,6 +15,27 @@ const icons = {
       <path strokeLinecap='round' strokeLinejoin='round' d='M9 12h6M9 8h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z' />
     </svg>
   ),
+  evaluations: (
+  <svg
+    width='16'
+    height='16'
+    fill='none'
+    viewBox='0 0 24 24'
+    stroke='currentColor'
+    strokeWidth='1.75'
+    aria-hidden='true'
+  >
+    <path
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      d='M4 5a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5z'
+    />
+    <path
+      strokeLinecap='round'
+      d='M8 8h8M8 12h5M8 16h3'
+    />
+  </svg>
+),
   executions: (
     <svg width='16' height='16' fill='none' viewBox='0 0 24 24' stroke='currentColor' strokeWidth='1.75' aria-hidden='true'>
       <path strokeLinecap='round' strokeLinejoin='round' d='M5 3l14 9-14 9V3z' />
@@ -49,6 +70,7 @@ const icons = {
 const primaryNav = [
   { to: '/dashboard', label: 'Overview', icon: icons.overview, end: true },
   { to: '/dashboard/prompts', label: 'Prompts', icon: icons.prompts },
+  { to: '/dashboard/evaluations', label: 'Evaluations', icon: icons.evaluations },
   { to: '/dashboard/executions', label: 'Executions', icon: icons.executions },
   { to: '/dashboard/comparisons', label: 'Comparisons', icon: icons.comparisons },
   { to: '/dashboard/analytics', label: 'Analytics', icon: icons.analytics },

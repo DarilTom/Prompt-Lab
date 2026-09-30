@@ -18,6 +18,9 @@ import Executions from "./pages/dashboard/Executions";
 import ExecutionDetail from "./pages/dashboard/ExecutionDetail";
 import Comparisons from "./pages/dashboard/Comparisons";
 import Analytics from "./pages/dashboard/Analytics";
+import Evaluations from "./pages/dashboard/Evaluations";
+import RunEvaluation from "./pages/dashboard/RunEvaluation";
+import EvaluationResult from "./pages/dashboard/EvaluationResult";
 
 
 // Placeholder for future pages — swap out when built
@@ -50,6 +53,9 @@ function App() {
             <Route path="prompts" element={<Prompts />} />
             <Route path="prompts/new" element={<NewPrompt />} />
             <Route path="prompts/:id" element={<PromptDetail />} />
+            <Route path="evaluations" element={<Evaluations />} />
+            <Route path="evaluations/run" element={<RunEvaluation />} />
+            <Route path="evaluations/runs/:id" element={<EvaluationResult />} />
             <Route path="executions" element={<Executions />} />
             <Route path="executions/:id" element={<ExecutionDetail />} />
             <Route path="comparisons" element={<Comparisons />} />
