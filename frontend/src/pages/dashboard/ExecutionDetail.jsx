@@ -112,6 +112,44 @@ export default function ExecutionDetail() {
             {formatDate(execution.created_at)}
           </span>
         </div>
+
+        <div className="mt-5 flex flex-wrap gap-4 border-t border-border pt-4">
+          <div>
+            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+              Status
+            </p>
+            <p className="mt-1 text-sm font-semibold text-ink">
+              {execution.status}
+            </p>
+          </div>
+
+          <div>
+            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+              Duration
+            </p>
+            <p className="mt-1 font-mono text-sm font-semibold text-ink">
+              {formatDuration(execution.total_duration)}
+            </p>
+          </div>
+
+          <div>
+            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+              Input Tokens
+            </p>
+            <p className="mt-1 font-mono text-sm font-semibold text-ink">
+              {execution.prompt_eval_count ?? "—"}
+            </p>
+          </div>
+
+          <div>
+            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+              Output Tokens
+            </p>
+            <p className="mt-1 font-mono text-sm font-semibold text-ink">
+              {execution.eval_count ?? "—"}
+            </p>
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -124,9 +162,9 @@ export default function ExecutionDetail() {
       <section className="rounded-card border border-border bg-surface shadow-subtle">
 
         <div className="border-b border-border px-6 py-5">
-          <h2 className="text-lg font-semibold">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
             Input
-          </h2>
+          </p>
         </div>
 
         <div className="p-6">
@@ -141,9 +179,9 @@ export default function ExecutionDetail() {
       <section className="rounded-card border border-border bg-surface shadow-subtle">
 
         <div className="border-b border-border px-6 py-5">
-          <h2 className="text-lg font-semibold">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
             Response
-          </h2>
+          </p>
         </div>
 
         <div className="p-6">
@@ -154,58 +192,6 @@ export default function ExecutionDetail() {
           </div>
         </div>
 
-      </section>
-
-      {/* Metrics */}
-      <section>
-
-        <h2 className="mb-4 font-serif text-3xl">
-          Execution Metrics
-        </h2>
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-          <div className="rounded-card border border-border bg-surface p-5 shadow-subtle">
-            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-              Status
-            </p>
-
-            <p className="mt-2 text-sm font-semibold">
-              {execution.status}
-            </p>
-          </div>
-
-          <div className="rounded-card border border-border bg-surface p-5 shadow-subtle">
-            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-              Duration
-            </p>
-
-            <p className="mt-2 font-mono text-sm font-semibold">
-              {formatDuration(execution.total_duration)}
-            </p>
-          </div>
-
-          <div className="rounded-card border border-border bg-surface p-5 shadow-subtle">
-            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-              Input Tokens
-            </p>
-
-            <p className="mt-2 font-mono text-sm font-semibold">
-              {execution.prompt_eval_count ?? "—"}
-            </p>
-          </div>
-
-          <div className="rounded-card border border-border bg-surface p-5 shadow-subtle">
-            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-              Output Tokens
-            </p>
-
-            <p className="mt-2 font-mono text-sm font-semibold">
-              {execution.eval_count ?? "—"}
-            </p>
-          </div>
-
-        </div>
       </section>
 
     </div>

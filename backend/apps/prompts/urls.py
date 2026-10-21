@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     PromptDetailView,
+    PromptImproveView,
     PromptListCreateView,
     PromptVersionListCreateView,
 )
@@ -11,6 +12,11 @@ urlpatterns = [
         "",
         PromptListCreateView.as_view(),
         name="prompt-list-create",
+    ),
+    path(
+        "improve/",
+        PromptImproveView.as_view(),
+        name="prompt-improve",
     ),
     path(
         "<int:pk>/",

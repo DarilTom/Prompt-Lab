@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Link,
-  useSearchParams,
-} from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import {
   getEvaluationRun,
@@ -15,46 +12,29 @@ function unwrapList(data) {
   if (Array.isArray(data)) {
     return data;
   }
-
   if (Array.isArray(data?.results)) {
     return data.results;
   }
-
   return [];
 }
 
 function formatDuration(nanoseconds) {
-  if (
-    nanoseconds === null ||
-    nanoseconds === undefined
-  ) {
+  if (nanoseconds === null || nanoseconds === undefined) {
     return "—";
   }
-
-  const seconds =
-    Number(nanoseconds) / 1_000_000_000;
-
+  const seconds = Number(nanoseconds) / 1_000_000_000;
   if (seconds < 60) {
     return `${seconds.toFixed(1)}s`;
   }
-
   const minutes = Math.floor(seconds / 60);
   const remaining = seconds % 60;
-
   return `${minutes}m ${remaining.toFixed(1)}s`;
 }
 
 function formatDate(value) {
-  if (!value) {
-    return "—";
-  }
-
+  if (!value) return "—";
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "—";
-  }
-
+  if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString([], {
     dateStyle: "medium",
     timeStyle: "short",
@@ -64,26 +44,19 @@ function formatDate(value) {
 function delta(a, b) {
   const first = Number(a);
   const second = Number(b);
-
-  if (
-    Number.isNaN(first) ||
-    Number.isNaN(second)
-  ) {
+  if (Number.isNaN(first) || Number.isNaN(second)) {
     return null;
   }
-
   return second - first;
 }
 
 function formatDelta(value) {
-  if (value === null) {
+  if (value === null || Number.isNaN(value)) {
     return "—";
   }
-
   if (value > 0) {
     return `+${value.toFixed(2)}`;
   }
-
   return value.toFixed(2);
 }
 
@@ -91,36 +64,48 @@ function deltaClass(value) {
   if (value === null || value === 0) {
     return "text-muted";
   }
-
-  return value > 0
-    ? "text-success"
-    : "text-error";
+  return value > 0 ? "text-success" : "text-error";
 }
 
-function regressionLabel(value) {
-  if (value === null) {
-    return "No comparison";
+function caseOutcome(scoreDelta) {
+  if (scoreDelta === null || Number.isNaN(scoreDelta)) {
+    return { label: "No comparison", className: "bg-border text-muted" };
   }
-
-  if (value > 0) {
-    return "Improved";
+  if (scoreDelta > 0) {
+    return {
+      label: `Run B higher (+${scoreDelta.toFixed(2)})`,
+      className: "bg-success/10 text-success",
+    };
   }
-
-  if (value < 0) {
-    return "Regression";
+  if (scoreDelta < 0) {
+    return {
+      label: `Run A higher (${scoreDelta.toFixed(2)})`,
+      className: "bg-error/10 text-error",
+    };
   }
-
-  return "Unchanged";
+  return { label: "Equal score", className: "bg-border text-muted" };
 }
 
-function regressionClass(value) {
-  if (value === null || value === 0) {
-    return "bg-border text-muted";
+function generateComparisonSummary(runA, runB, caseComparisons, scoreDelta) {
+  if (!runA || !runB) return "";
+  const diff = scoreDelta ?? 0;
+  const absDiff = Math.abs(diff).toFixed(2);
+  const improved = caseComparisons.filter((c) => c.scoreDelta > 0).length;
+  const regressed = caseComparisons.filter((c) => c.scoreDelta < 0).length;
+  const equal = caseComparisons.filter((c) => c.scoreDelta === 0).length;
+  const total = caseComparisons.length;
+
+  let overallOutcome = "had the same overall score";
+  if (diff > 0) {
+    overallOutcome = `scored ${absDiff} points higher overall (${runB.overall_score} vs ${runA.overall_score})`;
+  } else if (diff < 0) {
+    overallOutcome = `scored ${absDiff} points lower overall (${runB.overall_score} vs ${runA.overall_score})`;
   }
 
-  return value > 0
-    ? "bg-success/10 text-success"
-    : "bg-error/10 text-error";
+  const passSummary = `Pass count moved from ${runA.passed_cases}/${runA.total_cases} in Run A to ${runB.passed_cases}/${runB.total_cases} in Run B.`;
+  const caseSummary = `Across ${total} test cases, Run B scored higher on ${improved}, lower on ${regressed}, and remained equal on ${equal}.`;
+
+  return `In this observed comparison, Run B (v${runB.version_number}) ${overallOutcome} than Run A (v${runA.version_number}). ${caseSummary} ${passSummary}`;
 }
 
 function LoadingState() {
@@ -128,7 +113,6 @@ function LoadingState() {
     <div className="flex min-h-[420px] items-center justify-center">
       <div className="text-center">
         <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-border border-t-brand" />
-
         <p className="mt-4 text-sm text-muted">
           Loading comparison workspace...
         </p>
@@ -138,31 +122,20 @@ function LoadingState() {
 }
 
 function RunOptionLabel(run) {
-  return `Run #${run.id} · ${run.prompt_title || "Untitled"} · v${run.version_number} · ${run.overall_score ?? "—"}`;
+  return `Run #${run.id} · ${run.prompt_title || "Untitled"} · v${run.version_number} · Score: ${run.overall_score ?? "—"}`;
 }
 
 export default function EvaluationCompare() {
   const [searchParams] = useSearchParams();
 
   const [runs, setRuns] = useState([]);
-
-  const [runAId, setRunAId] = useState(
-    searchParams.get("a") || ""
-  );
-
-  const [runBId, setRunBId] = useState(
-    searchParams.get("b") || ""
-  );
-
+  const [runAId, setRunAId] = useState(searchParams.get("a") || "");
+  const [runBId, setRunBId] = useState(searchParams.get("b") || "");
   const [runA, setRunA] = useState(null);
   const [runB, setRunB] = useState(null);
 
-  const [loadingRuns, setLoadingRuns] =
-    useState(true);
-
-  const [loadingComparison, setLoadingComparison] =
-    useState(false);
-
+  const [loadingRuns, setLoadingRuns] = useState(true);
+  const [loadingComparison, setLoadingComparison] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -172,36 +145,19 @@ export default function EvaluationCompare() {
         setError("");
 
         const data = await getEvaluationRuns();
-
         const completedRuns = unwrapList(data).filter(
-          (run) =>
-            run.status === "completed"
+          (run) => run.status === "completed"
         );
 
         setRuns(completedRuns);
 
-        // Automatically choose the two newest completed
-        // runs when no selections were supplied.
-        if (
-          !runAId &&
-          !runBId &&
-          completedRuns.length >= 2
-        ) {
-          setRunAId(
-            String(completedRuns[1].id)
-          );
-
-          setRunBId(
-            String(completedRuns[0].id)
-          );
+        if (!runAId && !runBId && completedRuns.length >= 2) {
+          setRunAId(String(completedRuns[1].id));
+          setRunBId(String(completedRuns[0].id));
         }
       } catch (err) {
         console.error(err);
-
-        setError(
-          err.message ||
-            "Unable to load evaluation runs."
-        );
+        setError(err.message || "Unable to load evaluation runs.");
       } finally {
         setLoadingRuns(false);
       }
@@ -218,9 +174,7 @@ export default function EvaluationCompare() {
     }
 
     if (runAId === runBId) {
-      setError(
-        "Please select two different evaluation runs."
-      );
+      setError("Please select two different evaluation runs.");
       setRunA(null);
       setRunB(null);
       return;
@@ -231,23 +185,17 @@ export default function EvaluationCompare() {
         setLoadingComparison(true);
         setError("");
 
-        const [first, second] =
-          await Promise.all([
-            getEvaluationRun(runAId),
-            getEvaluationRun(runBId),
-          ]);
+        const [first, second] = await Promise.all([
+          getEvaluationRun(runAId),
+          getEvaluationRun(runBId),
+        ]);
 
-        if (
-          String(first.dataset) !==
-          String(second.dataset)
-        ) {
+        if (String(first.dataset) !== String(second.dataset)) {
           setRunA(null);
           setRunB(null);
-
           setError(
             "These runs use different datasets. Select two runs from the same dataset."
           );
-
           return;
         }
 
@@ -255,14 +203,9 @@ export default function EvaluationCompare() {
         setRunB(second);
       } catch (err) {
         console.error(err);
-
         setRunA(null);
         setRunB(null);
-
-        setError(
-          err.message ||
-            "Unable to load the selected runs."
-        );
+        setError(err.message || "Unable to load the selected runs.");
       } finally {
         setLoadingComparison(false);
       }
@@ -272,127 +215,65 @@ export default function EvaluationCompare() {
   }, [runAId, runBId]);
 
   const scoreDelta = useMemo(() => {
-    if (!runA || !runB) {
-      return null;
-    }
-
-    return delta(
-      runA.overall_score,
-      runB.overall_score
-    );
+    if (!runA || !runB) return null;
+    return delta(runA.overall_score, runB.overall_score);
   }, [runA, runB]);
 
   const passedDelta = useMemo(() => {
-    if (!runA || !runB) {
-      return null;
-    }
-
-    return Number(runB.passed_cases) -
-      Number(runA.passed_cases);
-  }, [runA, runB]);
-
-  const failedDelta = useMemo(() => {
-    if (!runA || !runB) {
-      return null;
-    }
-
-    return Number(runB.failed_cases) -
-      Number(runA.failed_cases);
+    if (!runA || !runB) return null;
+    return Number(runB.passed_cases) - Number(runA.passed_cases);
   }, [runA, runB]);
 
   const caseComparisons = useMemo(() => {
-    if (!runA || !runB) {
-      return [];
-    }
+    if (!runA || !runB) return [];
 
-    const firstResults =
-      runA.results || [];
-
-    const secondResults =
-      runB.results || [];
+    const firstResults = runA.results || [];
+    const secondResults = runB.results || [];
 
     const secondByTestCase = new Map(
-      secondResults.map((result) => [
-        String(result.test_case),
-        result,
-      ])
+      secondResults.map((result) => [String(result.test_case), result])
     );
 
     return firstResults.map((firstResult) => {
-      const secondResult =
-        secondByTestCase.get(
-          String(firstResult.test_case)
-        );
+      const secondResult = secondByTestCase.get(String(firstResult.test_case));
 
       return {
         first: firstResult,
         second: secondResult || null,
         scoreDelta: secondResult
-          ? delta(
-              firstResult.score,
-              secondResult.score
-            )
+          ? delta(firstResult.score, secondResult.score)
           : null,
       };
     });
   }, [runA, runB]);
 
-  const improvedCases = caseComparisons.filter(
-    (item) => item.scoreDelta > 0
-  );
-
-  const regressionCases = caseComparisons.filter(
-    (item) => item.scoreDelta < 0
-  );
-
   const criterionComparisons = useMemo(() => {
-    if (!runA || !runB) {
-      return [];
-    }
+    if (!runA || !runB) return [];
 
     const firstCriteria = {};
-
     const secondCriteria = {};
 
-    (runA.results || []).forEach(
-      (result) => {
-        Object.entries(
-          result.criteria_scores || {}
-        ).forEach(
-          ([criterion, value]) => {
-            if (
-              !firstCriteria[criterion]
-            ) {
-              firstCriteria[criterion] = [];
-            }
-
-            firstCriteria[criterion].push(
-              Number(value)
-            );
+    (runA.results || []).forEach((result) => {
+      Object.entries(result.criteria_scores || {}).forEach(
+        ([criterion, value]) => {
+          if (!firstCriteria[criterion]) {
+            firstCriteria[criterion] = [];
           }
-        );
-      }
-    );
+          firstCriteria[criterion].push(Number(value));
+        }
+      );
+    });
 
-    (runB.results || []).forEach(
-      (result) => {
-        Object.entries(
-          result.criteria_scores || {}
-        ).forEach(
-          ([criterion, value]) => {
-            if (
-              !secondCriteria[criterion]
-            ) {
-              secondCriteria[criterion] = [];
-            }
-
-            secondCriteria[criterion].push(
-              Number(value)
-            );
+    (runB.results || []).forEach((result) => {
+      Object.entries(result.criteria_scores || {}).forEach(
+        ([criterion, value]) => {
+          if (!secondCriteria[criterion]) {
+            secondCriteria[criterion] = [];
           }
-        );
-      }
-    );
+          secondCriteria[criterion].push(Number(value));
+        }
+      );
+    });
 
     const criteria = Array.from(
       new Set([
@@ -402,50 +283,40 @@ export default function EvaluationCompare() {
     );
 
     return criteria.map((criterion) => {
-      const firstValues =
-        firstCriteria[criterion] || [];
+      const firstValues = firstCriteria[criterion] || [];
+      const secondValues = secondCriteria[criterion] || [];
 
-      const secondValues =
-        secondCriteria[criterion] || [];
+      const firstAverage = firstValues.length
+        ? firstValues.reduce((sum, value) => sum + value, 0) / firstValues.length
+        : null;
 
-      const firstAverage =
-        firstValues.length
-          ? firstValues.reduce(
-              (sum, value) =>
-                sum + value,
-              0
-            ) / firstValues.length
-          : null;
-
-      const secondAverage =
-        secondValues.length
-          ? secondValues.reduce(
-              (sum, value) =>
-                sum + value,
-              0
-            ) / secondValues.length
-          : null;
+      const secondAverage = secondValues.length
+        ? secondValues.reduce((sum, value) => sum + value, 0) / secondValues.length
+        : null;
 
       return {
         criterion,
         firstAverage,
         secondAverage,
         delta:
-          firstAverage !== null &&
-          secondAverage !== null
+          firstAverage !== null && secondAverage !== null
             ? secondAverage - firstAverage
             : null,
       };
     });
   }, [runA, runB]);
 
+  const summaryText = useMemo(() => {
+    return generateComparisonSummary(runA, runB, caseComparisons, scoreDelta);
+  }, [runA, runB, caseComparisons, scoreDelta]);
+
   if (loadingRuns) {
     return <LoadingState />;
   }
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Header */}
+    <div className="space-y-8 pb-12 max-w-5xl">
+      {/* Back button & Title */}
       <div className="flex flex-col gap-3">
         <Link
           to="/dashboard/evaluations"
@@ -465,51 +336,34 @@ export default function EvaluationCompare() {
               d="M15 18l-6-6 6-6"
             />
           </svg>
-
           Back to evaluations
         </Link>
 
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-            Evaluation comparison
-          </p>
-
-          <h1 className="mt-2 font-serif text-4xl tracking-tight text-ink">
-            Compare prompt experiments.
+          <h1 className="font-serif text-3xl sm:text-4xl tracking-tight text-ink">
+            Compare Evaluations
           </h1>
-
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            Compare two completed evaluations on
-            the same test dataset to inspect score
-            changes, criterion changes, and regressions.
+          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted">
+            Select two completed evaluation runs on the same dataset to see how prompt revisions compare case-by-case.
           </p>
         </div>
       </div>
 
-      {/* Selectors */}
-      <section className="rounded-xl border border-border bg-surface p-6">
+      {/* 1. Selectors & Compact Run Summary */}
+      <section className="rounded-xl border border-border bg-surface p-6 shadow-subtle">
         <div className="grid gap-5 md:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-ink">
-              Run A — baseline
+              Run A — Baseline
             </label>
-
             <select
               value={runAId}
-              onChange={(event) =>
-                setRunAId(event.target.value)
-              }
+              onChange={(e) => setRunAId(e.target.value)}
               className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
             >
-              <option value="">
-                Select baseline run
-              </option>
-
+              <option value="">Select baseline run</option>
               {runs.map((run) => (
-                <option
-                  key={run.id}
-                  value={run.id}
-                >
+                <option key={run.id} value={run.id}>
                   {RunOptionLabel(run)}
                 </option>
               ))}
@@ -518,25 +372,16 @@ export default function EvaluationCompare() {
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-ink">
-              Run B — comparison
+              Run B — Comparison
             </label>
-
             <select
               value={runBId}
-              onChange={(event) =>
-                setRunBId(event.target.value)
-              }
+              onChange={(e) => setRunBId(e.target.value)}
               className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
             >
-              <option value="">
-                Select comparison run
-              </option>
-
+              <option value="">Select comparison run</option>
               {runs.map((run) => (
-                <option
-                  key={run.id}
-                  value={run.id}
-                >
+                <option key={run.id} value={run.id}>
                   {RunOptionLabel(run)}
                 </option>
               ))}
@@ -545,18 +390,67 @@ export default function EvaluationCompare() {
         </div>
 
         {runA && runB && (
-          <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-4">
-            <span className="rounded-full bg-background px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-              Dataset: {runA.dataset_name}
-            </span>
+          <div className="mt-5 border-t border-border pt-4">
+            <div className="mb-4 flex flex-wrap gap-2">
+              <span className="rounded-full bg-background px-3 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                Dataset: {runA.dataset_name}
+              </span>
+              <span className="rounded-full bg-background px-3 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                {runA.total_cases} test cases
+              </span>
+              <span className="rounded-full bg-background px-3 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                {runA.model}
+              </span>
+            </div>
 
-            <span className="rounded-full bg-background px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-              {runA.total_cases} test cases
-            </span>
+            {/* Compact summary cards for Run A and Run B */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-lg border border-border bg-background p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-brand">
+                    Run A (Baseline)
+                  </span>
+                  <span className="font-mono text-xs text-muted">#{runA.id}</span>
+                </div>
+                <p className="mt-1 font-medium text-ink truncate text-sm">
+                  {runA.prompt_title}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs border border-border text-ink">
+                    v{runA.version_number}
+                  </span>
+                  <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs font-semibold border border-border text-ink">
+                    Score: {runA.overall_score ?? "—"}
+                  </span>
+                  <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs font-semibold border border-border text-success">
+                    {runA.passed_cases}/{runA.total_cases} passed
+                  </span>
+                </div>
+              </div>
 
-            <span className="rounded-full bg-background px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-              {runA.model}
-            </span>
+              <div className="rounded-lg border border-border bg-background p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-brand">
+                    Run B (Comparison)
+                  </span>
+                  <span className="font-mono text-xs text-muted">#{runB.id}</span>
+                </div>
+                <p className="mt-1 font-medium text-ink truncate text-sm">
+                  {runB.prompt_title}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs border border-border text-ink">
+                    v{runB.version_number}
+                  </span>
+                  <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs font-semibold border border-border text-ink">
+                    Score: {runB.overall_score ?? "—"}
+                  </span>
+                  <span className="rounded bg-surface px-2 py-0.5 font-mono text-xs font-semibold border border-border text-success">
+                    {runB.passed_cases}/{runB.total_cases} passed
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </section>
@@ -573,7 +467,7 @@ export default function EvaluationCompare() {
           <div className="text-center">
             <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-border border-t-brand" />
             <p className="mt-3 text-sm text-muted">
-              Loading comparison...
+              Loading comparison data...
             </p>
           </div>
         </div>
@@ -581,447 +475,308 @@ export default function EvaluationCompare() {
 
       {runA && runB && !loadingComparison && (
         <>
-          {/* Summary */}
-          <section>
-            <div className="mb-4">
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-                Run summary
+          {/* 2. Plain-English Summary Banner */}
+          <div className="rounded-xl border border-brand/20 bg-brand/5 p-5">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand/10 font-mono text-xs font-bold text-brand">
+                ℹ
+              </span>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-brand">
+                Observed Comparison Summary
               </p>
-
-              <h2 className="mt-1 font-serif text-3xl text-ink">
-                Baseline vs comparison
-              </h2>
             </div>
+            <p className="mt-2 text-sm leading-6 text-ink">
+              {summaryText}
+            </p>
+          </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-xl border border-border bg-surface p-5">
-                <div className="flex items-center justify-between">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                    Overall score
-                  </p>
-
-                  <span
-                    className={`font-mono text-[10px] font-semibold ${deltaClass(
-                      scoreDelta
-                    )}`}
-                  >
-                    {formatDelta(scoreDelta)}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex items-end gap-3">
-                  <div>
-                    <p className="font-mono text-3xl text-ink">
-                      {runA.overall_score ??
-                        "—"}
-                    </p>
-
-                    <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
-                      Run A
-                    </p>
-                  </div>
-
-                  <span className="mb-5 text-muted">
-                    →
-                  </span>
-
-                  <div>
-                    <p className="font-mono text-3xl text-ink">
-                      {runB.overall_score ??
-                        "—"}
-                    </p>
-
-                    <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
-                      Run B
-                    </p>
-                  </div>
-                </div>
+          {/* 3. Simple Test Case Comparison */}
+          <section className="space-y-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-serif text-2xl text-ink">
+                  Test Case Results
+                </h2>
+                <p className="text-xs text-muted">
+                  Click any test case to compare the generated model responses and evaluator feedback.
+                </p>
               </div>
-
-              <div className="rounded-xl border border-border bg-surface p-5">
-                <div className="flex items-center justify-between">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                    Passed cases
-                  </p>
-
-                  <span
-                    className={`font-mono text-[10px] font-semibold ${deltaClass(
-                      passedDelta
-                    )}`}
-                  >
-                    {passedDelta > 0
-                      ? `+${passedDelta}`
-                      : passedDelta}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex items-end gap-3">
-                  <div>
-                    <p className="font-mono text-3xl text-ink">
-                      {runA.passed_cases}
-                    </p>
-
-                    <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
-                      Run A
-                    </p>
-                  </div>
-
-                  <span className="mb-5 text-muted">
-                    →
-                  </span>
-
-                  <div>
-                    <p className="font-mono text-3xl text-ink">
-                      {runB.passed_cases}
-                    </p>
-
-                    <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
-                      Run B
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-surface p-5">
-                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                  Duration
-                </p>
-
-                <div className="mt-4 flex items-end gap-3">
-                  <div>
-                    <p className="font-mono text-2xl text-ink">
-                      {formatDuration(
-                        runA.total_duration
-                      )}
-                    </p>
-
-                    <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
-                      Run A
-                    </p>
-                  </div>
-
-                  <span className="mb-4 text-muted">
-                    →
-                  </span>
-
-                  <div>
-                    <p className="font-mono text-2xl text-ink">
-                      {formatDuration(
-                        runB.total_duration
-                      )}
-                    </p>
-
-                    <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
-                      Run B
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Run identity */}
-          <section className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-border bg-surface p-5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-brand">
-                Run A
-              </p>
-
-              <h3 className="mt-2 font-serif text-2xl text-ink">
-                {runA.prompt_title}
-              </h3>
-
-              <div className="mt-3 space-y-1 text-xs text-muted">
-                <p>
-                  Version:{" "}
-                  <span className="font-mono text-ink">
-                    v{runA.version_number}
-                  </span>
-                </p>
-
-                <p>
-                  Run ID:{" "}
-                  <span className="font-mono text-ink">
-                    #{runA.id}
-                  </span>
-                </p>
-
-                <p>
-                  Completed:{" "}
-                  {formatDate(
-                    runA.completed_at
-                  )}
-                </p>
+              <div className="flex items-center gap-2 font-mono text-xs text-muted">
+                <span className="inline-block h-2 w-2 rounded-full bg-success" /> Run B higher
+                <span className="ml-2 inline-block h-2 w-2 rounded-full bg-error" /> Run A higher
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-surface p-5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-brand">
-                Run B
-              </p>
-
-              <h3 className="mt-2 font-serif text-2xl text-ink">
-                {runB.prompt_title}
-              </h3>
-
-              <div className="mt-3 space-y-1 text-xs text-muted">
-                <p>
-                  Version:{" "}
-                  <span className="font-mono text-ink">
-                    v{runB.version_number}
-                  </span>
-                </p>
-
-                <p>
-                  Run ID:{" "}
-                  <span className="font-mono text-ink">
-                    #{runB.id}
-                  </span>
-                </p>
-
-                <p>
-                  Completed:{" "}
-                  {formatDate(
-                    runB.completed_at
-                  )}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* Criterion comparison */}
-          <section>
-            <div className="mb-4">
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-                Criterion analysis
-              </p>
-
-              <h2 className="mt-1 font-serif text-3xl text-ink">
-                Where did the score change?
-              </h2>
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-border bg-surface">
-              <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr] border-b border-border bg-background px-5 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                  Criterion
-                </p>
-
-                <p className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                  Run A
-                </p>
-
-                <p className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                  Run B
-                </p>
-
-                <p className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                  Change
-                </p>
-              </div>
-
-              {criterionComparisons.map(
-                (item) => (
-                  <div
-                    key={item.criterion}
-                    className="grid grid-cols-[1.5fr_1fr_1fr_1fr] border-b border-border px-5 py-4 last:border-b-0"
-                  >
-                    <p className="text-sm text-ink">
-                      {item.criterion.replace(
-                        /_/g,
-                        " "
-                      )}
-                    </p>
-
-                    <p className="text-right font-mono text-sm text-ink">
-                      {item.firstAverage !==
-                      null
-                        ? item.firstAverage.toFixed(
-                            2
-                          )
-                        : "—"}
-                    </p>
-
-                    <p className="text-right font-mono text-sm text-ink">
-                      {item.secondAverage !==
-                      null
-                        ? item.secondAverage.toFixed(
-                            2
-                          )
-                        : "—"}
-                    </p>
-
-                    <p
-                      className={`text-right font-mono text-sm font-semibold ${deltaClass(
-                        item.delta
-                      )}`}
-                    >
-                      {formatDelta(
-                        item.delta
-                      )}
-                    </p>
-                  </div>
-                )
-              )}
-            </div>
-          </section>
-
-          {/* Case comparison */}
-          <section>
-            <div className="mb-4">
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-                Test case analysis
-              </p>
-
-              <h2 className="mt-1 font-serif text-3xl text-ink">
-                Case-by-case comparison
-              </h2>
-
-              <p className="mt-2 text-sm text-muted">
-                Positive changes are shown as improvements;
-                negative changes are flagged as regressions.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              {caseComparisons.map(
-                (item) => (
-                  <article
+            <div className="space-y-3">
+              {caseComparisons.map((item) => {
+                const outcome = caseOutcome(item.scoreDelta);
+                return (
+                  <details
                     key={item.first.test_case}
-                    className="rounded-xl border border-border bg-surface"
+                    className="group rounded-xl border border-border bg-surface transition-colors open:ring-1 open:ring-border"
                   >
-                    <div className="flex flex-col justify-between gap-3 border-b border-border p-5 md:flex-row md:items-center">
-                      <div>
-                        <h3 className="text-sm font-semibold text-ink">
-                          {item.first.test_case_name}
-                        </h3>
-
-                        <p className="mt-1 font-mono text-[10px] text-muted">
-                          Test case #
-                          {item.first.test_case}
+                    <summary className="flex cursor-pointer list-none flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center hover:bg-background/50">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <svg
+                            width="14"
+                            height="14"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className="shrink-0 text-muted transition-transform group-open:rotate-90"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M9 18l6-6-6-6"
+                            />
+                          </svg>
+                          <h3 className="truncate text-sm font-medium text-ink">
+                            {item.first.test_case_name || `Case #${item.first.test_case}`}
+                          </h3>
+                        </div>
+                        <p className="ml-5 mt-0.5 font-mono text-[10px] text-muted">
+                          Test case #{item.first.test_case}
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`rounded-full px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] ${regressionClass(
-                            item.scoreDelta
-                          )}`}
-                        >
-                          {regressionLabel(
-                            item.scoreDelta
-                          )}
-                        </span>
-
-                        <span
-                          className={`font-mono text-lg font-semibold ${deltaClass(
-                            item.scoreDelta
-                          )}`}
-                        >
-                          {formatDelta(
-                            item.scoreDelta
-                          )}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 p-5 md:grid-cols-2">
-                      {/* Run A */}
-                      <div className="rounded-lg border border-border bg-background p-4">
-                        <div className="flex items-center justify-between">
-                          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                            Run A · v
-                            {runA.version_number}
-                          </p>
-
-                          <p className="font-mono text-xl text-ink">
-                            {item.first.score ??
-                              "—"}
-                          </p>
+                      <div className="ml-5 flex items-center gap-4 sm:ml-0">
+                        {/* Score comparison pill */}
+                        <div className="flex items-center gap-2 font-mono text-xs">
+                          <span className="text-muted">A:</span>
+                          <span className="font-semibold text-ink">
+                            {item.first.score ?? "—"}
+                          </span>
+                          <span className="text-muted">vs</span>
+                          <span className="text-muted">B:</span>
+                          <span className="font-semibold text-ink">
+                            {item.second?.score ?? "—"}
+                          </span>
                         </div>
 
-                        {item.first.execution_output && (
-                          <div className="mt-4">
+                        {/* Outcome badge */}
+                        <span
+                          className={`rounded-full px-2.5 py-1 font-mono text-[10px] font-medium ${outcome.className}`}
+                        >
+                          {outcome.label}
+                        </span>
+                      </div>
+                    </summary>
+
+                    {/* Expanded details: Response and feedback side by side */}
+                    <div className="border-t border-border p-5">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {/* Run A Output */}
+                        <div className="rounded-lg border border-border bg-background p-4">
+                          <div className="flex items-center justify-between border-b border-border pb-2">
+                            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                              Run A (v{runA.version_number}) Output
+                            </span>
+                            <span className="font-mono text-xs font-semibold text-ink">
+                              Score: {item.first.score ?? "—"}
+                            </span>
+                          </div>
+
+                          <div className="mt-3">
                             <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
                               Response
                             </p>
-
-                            <p className="whitespace-pre-wrap text-sm leading-6 text-muted">
-                              {
-                                item.first
-                                  .execution_output
-                              }
+                            <p className="whitespace-pre-wrap text-xs leading-6 text-ink">
+                              {item.first.execution_output || "No response recorded."}
                             </p>
                           </div>
-                        )}
 
-                        {item.first.feedback && (
-                          <div className="mt-4 border-t border-border pt-3">
-                            <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
-                              Feedback
-                            </p>
-
-                            <p className="text-xs leading-5 text-muted">
-                              {item.first.feedback}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Run B */}
-                      <div className="rounded-lg border border-border bg-background p-4">
-                        <div className="flex items-center justify-between">
-                          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                            Run B · v
-                            {runB.version_number}
-                          </p>
-
-                          <p className="font-mono text-xl text-ink">
-                            {item.second?.score ??
-                              "—"}
-                          </p>
+                          {item.first.feedback && (
+                            <div className="mt-3 border-t border-border pt-2.5">
+                              <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
+                                Evaluator Feedback
+                              </p>
+                              <p className="text-xs leading-5 text-muted">
+                                {item.first.feedback}
+                              </p>
+                            </div>
+                          )}
                         </div>
 
-                        {item.second?.execution_output && (
-                          <div className="mt-4">
+                        {/* Run B Output */}
+                        <div className="rounded-lg border border-border bg-background p-4">
+                          <div className="flex items-center justify-between border-b border-border pb-2">
+                            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                              Run B (v{runB.version_number}) Output
+                            </span>
+                            <span className="font-mono text-xs font-semibold text-ink">
+                              Score: {item.second?.score ?? "—"}
+                            </span>
+                          </div>
+
+                          <div className="mt-3">
                             <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
                               Response
                             </p>
-
-                            <p className="whitespace-pre-wrap text-sm leading-6 text-muted">
-                              {
-                                item.second
-                                  .execution_output
-                              }
+                            <p className="whitespace-pre-wrap text-xs leading-6 text-ink">
+                              {item.second?.execution_output || "No response recorded."}
                             </p>
                           </div>
-                        )}
 
-                        {item.second?.feedback && (
-                          <div className="mt-4 border-t border-border pt-3">
-                            <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
-                              Feedback
-                            </p>
-
-                            <p className="text-xs leading-5 text-muted">
-                              {item.second.feedback}
-                            </p>
-                          </div>
-                        )}
+                          {item.second?.feedback && (
+                            <div className="mt-3 border-t border-border pt-2.5">
+                              <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
+                                Evaluator Feedback
+                              </p>
+                              <p className="text-xs leading-5 text-muted">
+                                {item.second.feedback}
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </article>
-                )
-              )}
+                  </details>
+                );
+              })}
             </div>
           </section>
 
-         <RegressionAnalysis
-  runA={runA}
-  runB={runB}
-/>
+          {/* 4. Collapsible "Detailed Analysis" Section */}
+          <details className="rounded-xl border border-border bg-surface shadow-subtle group">
+            <summary className="flex cursor-pointer list-none items-center justify-between p-5 text-sm font-semibold text-ink hover:text-brand">
+              <div className="flex items-center gap-2">
+                <svg
+                  width="14"
+                  height="14"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="transition-transform group-open:rotate-90"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 18l6-6-6-6"
+                  />
+                </svg>
+                <span>Detailed analysis (Criteria breakdown, regression map &amp; metrics)</span>
+              </div>
+              <span className="font-mono text-xs text-muted">
+                Click to expand
+              </span>
+            </summary>
 
-          <div className="border-t border-border pt-6">
+            <div className="border-t border-border p-6 space-y-8">
+              {/* Score by Criterion */}
+              <div>
+                <h4 className="text-sm font-semibold text-ink mb-2">
+                  Criterion-by-criterion breakdown
+                </h4>
+                <p className="text-xs text-muted mb-4">
+                  Average score change across all test cases for each evaluation criterion.
+                </p>
+
+                <div className="overflow-hidden rounded-lg border border-border bg-background">
+                  <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr] border-b border-border bg-surface px-5 py-3">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Criterion
+                    </p>
+                    <p className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Run A
+                    </p>
+                    <p className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Run B
+                    </p>
+                    <p className="text-right font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Change
+                    </p>
+                  </div>
+
+                  {criterionComparisons.map((item) => (
+                    <div
+                      key={item.criterion}
+                      className="grid grid-cols-[1.5fr_1fr_1fr_1fr] border-b border-border px-5 py-3.5 last:border-b-0"
+                    >
+                      <p className="text-sm text-ink capitalize">
+                        {item.criterion.replace(/_/g, " ")}
+                      </p>
+                      <p className="text-right font-mono text-sm text-ink">
+                        {item.firstAverage !== null
+                          ? item.firstAverage.toFixed(2)
+                          : "—"}
+                      </p>
+                      <p className="text-right font-mono text-sm text-ink">
+                        {item.secondAverage !== null
+                          ? item.secondAverage.toFixed(2)
+                          : "—"}
+                      </p>
+                      <p
+                        className={`text-right font-mono text-sm font-semibold ${deltaClass(
+                          item.delta
+                        )}`}
+                      >
+                        {formatDelta(item.delta)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Technical Execution Metrics */}
+              <div>
+                <h4 className="text-sm font-semibold text-ink mb-3">
+                  Execution metrics
+                </h4>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-background p-4">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Overall score
+                    </p>
+                    <p className="mt-2 font-mono text-xl text-ink">
+                      {runA.overall_score ?? "—"} → {runB.overall_score ?? "—"}
+                    </p>
+                    <p className={`mt-1 font-mono text-xs font-semibold ${deltaClass(scoreDelta)}`}>
+                      {formatDelta(scoreDelta)} change
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-background p-4">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Passed cases
+                    </p>
+                    <p className="mt-2 font-mono text-xl text-ink">
+                      {runA.passed_cases} → {runB.passed_cases}
+                    </p>
+                    <p className={`mt-1 font-mono text-xs font-semibold ${deltaClass(passedDelta)}`}>
+                      {passedDelta > 0 ? `+${passedDelta}` : passedDelta} passed
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-background p-4">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                      Duration
+                    </p>
+                    <p className="mt-2 font-mono text-base text-ink">
+                      {formatDuration(runA.total_duration)} → {formatDuration(runB.total_duration)}
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-muted">
+                      Ollama inference time
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Advanced Regression Analysis Component */}
+              <div>
+                <h4 className="text-sm font-semibold text-ink mb-3">
+                  Regression thresholds &amp; classification
+                </h4>
+                <RegressionAnalysis runA={runA} runB={runB} />
+              </div>
+            </div>
+          </details>
+
+          {/* Action button */}
+          <div className="border-t border-border pt-4">
             <Link
               to="/dashboard/evaluations/run"
               className="inline-flex items-center justify-center gap-2 rounded-control bg-brand px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"

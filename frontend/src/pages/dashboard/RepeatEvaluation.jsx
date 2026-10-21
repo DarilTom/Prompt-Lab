@@ -12,11 +12,9 @@ function unwrapList(data) {
   if (Array.isArray(data)) {
     return data;
   }
-
   if (Array.isArray(data?.results)) {
     return data.results;
   }
-
   return [];
 }
 
@@ -24,12 +22,8 @@ function average(values) {
   if (!values.length) {
     return null;
   }
-
   return (
-    values.reduce(
-      (sum, value) => sum + value,
-      0
-    ) / values.length
+    values.reduce((sum, value) => sum + value, 0) / values.length
   );
 }
 
@@ -37,16 +31,10 @@ function standardDeviation(values) {
   if (!values.length) {
     return null;
   }
-
   const mean = average(values);
-
   const variance =
-    values.reduce(
-      (sum, value) =>
-        sum + Math.pow(value - mean, 2),
-      0
-    ) / values.length;
-
+    values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) /
+    values.length;
   return Math.sqrt(variance);
 }
 
@@ -58,21 +46,13 @@ function formatNumber(value, decimals = 2) {
   ) {
     return "—";
   }
-
   return Number(value).toFixed(decimals);
 }
 
 function formatDate(value) {
-  if (!value) {
-    return "—";
-  }
-
+  if (!value) return "—";
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "—";
-  }
-
+  if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString([], {
     dateStyle: "medium",
     timeStyle: "short",
@@ -81,16 +61,55 @@ function formatDate(value) {
 
 function scoreClass(score) {
   const value = Number(score);
-
-  if (Number.isNaN(value)) {
-    return "text-muted";
-  }
-
-  if (value >= 70) {
-    return "text-success";
-  }
-
+  if (Number.isNaN(value)) return "text-muted";
+  if (value >= 70) return "text-success";
   return "text-error";
+}
+
+function consistencyRating(deviation) {
+  if (deviation === null || Number.isNaN(deviation)) {
+    return { label: "N/A", text: "Insufficient data", color: "text-muted" };
+  }
+  if (deviation < 2.0) {
+    return {
+      label: "Very Steady",
+      text: "Minimal variation between trials",
+      color: "text-success",
+    };
+  }
+  if (deviation < 5.0) {
+    return {
+      label: "Consistent",
+      text: "Minor variation across trials",
+      color: "text-brand",
+    };
+  }
+  return {
+    label: "Variable",
+    text: "Significant score fluctuations",
+    color: "text-warning",
+  };
+}
+
+function plainEnglishVariability(summary, runsCount) {
+  if (!summary) return "";
+  const dev = summary.deviation ?? 0;
+  const meanStr = Number(summary.mean || 0).toFixed(1);
+  const passStr = Number(summary.passRate || 0).toFixed(1);
+  const minStr = Number(summary.min || 0).toFixed(1);
+  const maxStr = Number(summary.max || 0).toFixed(1);
+  const rangeStr = Number(summary.range || 0).toFixed(1);
+
+  let stabilityDescription = "";
+  if (dev < 2.0) {
+    stabilityDescription = `Scores remained very stable across all trials, with a narrow spread of ${rangeStr} points between the lowest (${minStr}) and highest (${maxStr}) run.`;
+  } else if (dev < 5.0) {
+    stabilityDescription = `Scores showed minor variation across trials, ranging from ${minStr} to ${maxStr} (${rangeStr} point spread). The prompt behaves predictably.`;
+  } else {
+    stabilityDescription = `Scores fluctuated significantly across trials, ranging from ${minStr} to ${maxStr} (${rangeStr} point spread). Output quality on identical inputs varied notably between runs.`;
+  }
+
+  return `Tested across ${runsCount} repeated trials: the prompt achieved an average score of ${meanStr}/100 with a ${passStr}% pass rate. ${stabilityDescription}`;
 }
 
 function LoadingState() {
@@ -98,9 +117,8 @@ function LoadingState() {
     <div className="flex min-h-[420px] items-center justify-center">
       <div className="text-center">
         <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-border border-t-brand" />
-
         <p className="mt-4 text-sm text-muted">
-          Loading repeat evaluation workspace...
+          Loading repeatability workspace...
         </p>
       </div>
     </div>
@@ -109,64 +127,57 @@ function LoadingState() {
 
 export default function RepeatEvaluation() {
   const [prompts, setPrompts] = useState([]);
-  const [versions, setVersions] = useState([]);
   const [datasets, setDatasets] = useState([]);
 
-  const [selectedPromptId, setSelectedPromptId] =
-    useState("");
+  const [selectedPromptId, setSelectedPromptId] = useState("");
+  const [versions, setVersions] = useState([]);
+  const [selectedVersionId, setSelectedVersionId] = useState("");
 
-  const [selectedVersionId, setSelectedVersionId] =
-    useState("");
+  const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [repeatCount, setRepeatCount] = useState(3);
+  const [model, setModel] = useState("gemma3:4b");
 
-  const [selectedDatasetId, setSelectedDatasetId] =
-    useState("");
-
-  const [model, setModel] =
-    useState("gemma3:4b");
-
-  const [repeatCount, setRepeatCount] =
-    useState("3");
-
-  const [loading, setLoading] = useState(true);
-  const [loadingVersions, setLoadingVersions] =
-    useState(false);
-
+  const [loadingInitial, setLoadingInitial] = useState(true);
+  const [loadingVersions, setLoadingVersions] = useState(false);
   const [running, setRunning] = useState(false);
-  const [currentRepeat, setCurrentRepeat] =
-    useState(0);
+  const [currentRepeat, setCurrentRepeat] = useState(0);
 
-  const [runs, setRuns] = useState([]);
   const [error, setError] = useState("");
+  const [runs, setRuns] = useState([]);
 
   useEffect(() => {
-    async function loadInitialData() {
+    async function loadInitial() {
       try {
-        setLoading(true);
+        setLoadingInitial(true);
         setError("");
 
-        const [
-          promptsData,
-          datasetsData,
-        ] = await Promise.all([
+        const [promptsData, datasetsData] = await Promise.all([
           getPromptsForEvaluation(),
           getEvaluationDatasets(),
         ]);
 
-        setPrompts(unwrapList(promptsData));
-        setDatasets(unwrapList(datasetsData));
+        const promptList = unwrapList(promptsData);
+        const datasetList = unwrapList(datasetsData);
+
+        setPrompts(promptList);
+        setDatasets(datasetList);
+
+        if (promptList.length > 0) {
+          setSelectedPromptId(String(promptList[0].id));
+        }
+
+        if (datasetList.length > 0) {
+          setSelectedDatasetId(String(datasetList[0].id));
+        }
       } catch (err) {
         console.error(err);
-
-        setError(
-          err.message ||
-            "Unable to load evaluation data."
-        );
+        setError(err.message || "Unable to load initial repeatability options.");
       } finally {
-        setLoading(false);
+        setLoadingInitial(false);
       }
     }
 
-    loadInitialData();
+    loadInitial();
   }, []);
 
   useEffect(() => {
@@ -181,32 +192,21 @@ export default function RepeatEvaluation() {
         setLoadingVersions(true);
         setError("");
 
-        const data =
-          await getPromptVersionsForEvaluation(
-            selectedPromptId
-          );
-
+        const data = await getPromptVersionsForEvaluation(selectedPromptId);
         const versionList = unwrapList(data);
 
         setVersions(versionList);
 
         if (versionList.length > 0) {
-          setSelectedVersionId(
-            String(versionList[0].id)
-          );
+          setSelectedVersionId(String(versionList[0].id));
         } else {
           setSelectedVersionId("");
         }
       } catch (err) {
         console.error(err);
-
         setVersions([]);
         setSelectedVersionId("");
-
-        setError(
-          err.message ||
-            "Unable to load prompt versions."
-        );
+        setError(err.message || "Unable to load prompt versions.");
       } finally {
         setLoadingVersions(false);
       }
@@ -217,45 +217,35 @@ export default function RepeatEvaluation() {
 
   const selectedPrompt = useMemo(() => {
     return prompts.find(
-      (prompt) =>
-        String(prompt.id) ===
-        String(selectedPromptId)
+      (prompt) => String(prompt.id) === String(selectedPromptId)
     );
   }, [prompts, selectedPromptId]);
 
   const selectedVersion = useMemo(() => {
     return versions.find(
-      (version) =>
-        String(version.id) ===
-        String(selectedVersionId)
+      (version) => String(version.id) === String(selectedVersionId)
     );
   }, [versions, selectedVersionId]);
 
   const selectedDataset = useMemo(() => {
     return datasets.find(
-      (dataset) =>
-        String(dataset.id) ===
-        String(selectedDatasetId)
+      (dataset) => String(dataset.id) === String(selectedDatasetId)
     );
   }, [datasets, selectedDatasetId]);
 
-  const numericRepeatCount =
-    Number(repeatCount);
+  const numericRepeatCount = Number(repeatCount);
 
-  const canRun =
-    Boolean(
-      selectedPromptId &&
-      selectedVersionId &&
-      selectedDatasetId &&
-      model &&
-      selectedDataset &&
-      Number(
-        selectedDataset.test_case_count || 0
-      ) > 0 &&
-      numericRepeatCount >= 2 &&
-      numericRepeatCount <= 5 &&
-      !running
-    );
+  const canRun = Boolean(
+    selectedPromptId &&
+    selectedVersionId &&
+    selectedDatasetId &&
+    model &&
+    selectedDataset &&
+    Number(selectedDataset.test_case_count || 0) > 0 &&
+    numericRepeatCount >= 2 &&
+    numericRepeatCount <= 5 &&
+    !running
+  );
 
   const overallScores = useMemo(() => {
     return runs
@@ -269,26 +259,16 @@ export default function RepeatEvaluation() {
     }
 
     const mean = average(overallScores);
-
-    const min = Math.min(
-      ...overallScores
-    );
-
-    const max = Math.max(
-      ...overallScores
-    );
-
-    const deviation =
-      standardDeviation(overallScores);
+    const min = Math.min(...overallScores);
+    const max = Math.max(...overallScores);
+    const deviation = standardDeviation(overallScores);
 
     const passedRuns = runs.filter(
       (run) =>
-        run.status === "completed" &&
-        Number(run.failed_cases) === 0
+        run.status === "completed" && Number(run.failed_cases) === 0
     ).length;
 
-    const passRate =
-      (passedRuns / runs.length) * 100;
+    const passRate = (passedRuns / runs.length) * 100;
 
     return {
       mean,
@@ -305,69 +285,51 @@ export default function RepeatEvaluation() {
     const byCase = new Map();
 
     runs.forEach((run) => {
-      (run.results || []).forEach(
-        (result) => {
-          const key = String(
-            result.test_case
-          );
+      (run.results || []).forEach((result) => {
+        const key = String(result.test_case);
 
-          if (!byCase.has(key)) {
-            byCase.set(key, {
-              id: result.test_case,
-              name: result.test_case_name,
-              scores: [],
-              passCount: 0,
-              totalCount: 0,
-            });
-          }
-
-          const entry = byCase.get(key);
-
-          const score = Number(
-            result.score
-          );
-
-          if (!Number.isNaN(score)) {
-            entry.scores.push(score);
-          }
-
-          entry.totalCount += 1;
-
-          if (result.status === "passed") {
-            entry.passCount += 1;
-          }
+        if (!byCase.has(key)) {
+          byCase.set(key, {
+            id: result.test_case,
+            name: result.test_case_name,
+            scores: [],
+            passCount: 0,
+            totalCount: 0,
+          });
         }
-      );
+
+        const entry = byCase.get(key);
+        const score = Number(result.score);
+
+        if (!Number.isNaN(score)) {
+          entry.scores.push(score);
+        }
+
+        entry.totalCount += 1;
+
+        if (result.status === "passed") {
+          entry.passCount += 1;
+        }
+      });
     });
 
-    return Array.from(
-      byCase.values()
-    ).map((entry) => {
+    return Array.from(byCase.values()).map((entry) => {
       const mean = average(entry.scores);
-
-      const deviation =
-        standardDeviation(entry.scores);
-
-      const min = entry.scores.length
-        ? Math.min(...entry.scores)
-        : null;
-
-      const max = entry.scores.length
-        ? Math.max(...entry.scores)
+      const deviation = standardDeviation(entry.scores);
+      const min = entry.scores.length ? Math.min(...entry.scores) : null;
+      const max = entry.scores.length ? Math.max(...entry.scores) : null;
+      const passRate = entry.totalCount
+        ? (entry.passCount / entry.totalCount) * 100
         : null;
 
       return {
-        ...entry,
+        id: entry.id,
+        name: entry.name,
         mean,
         deviation,
         min,
         max,
-        passRate:
-          entry.totalCount > 0
-            ? (entry.passCount /
-                entry.totalCount) *
-              100
-            : null,
+        passRate,
       };
     });
   }, [runs]);
@@ -375,9 +337,7 @@ export default function RepeatEvaluation() {
   async function handleRunRepeats(event) {
     event.preventDefault();
 
-    if (!canRun) {
-      return;
-    }
+    if (!canRun) return;
 
     try {
       setRunning(true);
@@ -385,41 +345,26 @@ export default function RepeatEvaluation() {
       setRuns([]);
       setCurrentRepeat(0);
 
-      const completedRuns = [];
+      const createdRuns = [];
 
-      for (
-        let index = 1;
-        index <= numericRepeatCount;
-        index += 1
-      ) {
-        setCurrentRepeat(index);
+      for (let index = 0; index < numericRepeatCount; index += 1) {
+        setCurrentRepeat(index + 1);
 
-        const result =
-          await createEvaluationRun({
-            prompt_version:
-              Number(selectedVersionId),
+        const newRun = await createEvaluationRun({
+          prompt: Number(selectedPromptId),
+          prompt_version: Number(selectedVersionId),
+          dataset: Number(selectedDatasetId),
+          model,
+        });
 
-            dataset:
-              Number(selectedDatasetId),
-
-            model: model.trim(),
-          });
-
-        completedRuns.push(result);
-        setRuns([...completedRuns]);
-
-        if (result.status !== "completed") {
-          setError(
-            `Repeat ${index} completed with status "${result.status}".`
-          );
-        }
+        createdRuns.push(newRun);
+        setRuns([...createdRuns]);
       }
     } catch (err) {
       console.error(err);
-
       setError(
         err.message ||
-          "Unable to complete the repeat evaluation."
+          "An error occurred while running the repeatability study."
       );
     } finally {
       setRunning(false);
@@ -430,14 +375,17 @@ export default function RepeatEvaluation() {
   function resetResults() {
     setRuns([]);
     setError("");
+    setCurrentRepeat(0);
   }
 
-  if (loading) {
+  if (loadingInitial) {
     return <LoadingState />;
   }
 
+  const rating = summary ? consistencyRating(summary.deviation) : null;
+
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-8 pb-12 max-w-5xl">
       {/* Header */}
       <div className="flex flex-col gap-3">
         <Link
@@ -458,23 +406,15 @@ export default function RepeatEvaluation() {
               d="M15 18l-6-6 6-6"
             />
           </svg>
-
           Back to evaluations
         </Link>
 
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-            Repeatability study
-          </p>
-
-          <h1 className="mt-2 font-serif text-4xl tracking-tight text-ink">
-            Measure prompt consistency.
+          <h1 className="font-serif text-3xl sm:text-4xl tracking-tight text-ink">
+            Prompt Repeatability Study
           </h1>
-
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            Run the same prompt version against the same
-            test dataset multiple times and measure score
-            stability across the repeated trials.
+          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted">
+            Run the same prompt version against your test cases multiple times to observe whether its answers and scores remain consistent.
           </p>
         </div>
       </div>
@@ -487,19 +427,15 @@ export default function RepeatEvaluation() {
       )}
 
       {/* Configuration */}
-      <form
-        onSubmit={handleRunRepeats}
-        className="grid gap-6 xl:grid-cols-[1fr_0.65fr]"
-      >
-        <section className="rounded-xl border border-border bg-surface p-6">
+      <form onSubmit={handleRunRepeats} className="space-y-6">
+        <section className="rounded-xl border border-border bg-surface p-6 shadow-subtle">
           <div className="mb-6">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-              Repeat experiment
-            </p>
-
-            <h2 className="mt-1 font-serif text-2xl text-ink">
-              Configure the study
+            <h2 className="font-serif text-2xl text-ink">
+              Configure Repeat Study
             </h2>
+            <p className="text-xs text-muted mt-1">
+              Select the prompt version, test dataset, and number of trials to run.
+            </p>
           </div>
 
           <div className="space-y-5">
@@ -508,27 +444,16 @@ export default function RepeatEvaluation() {
               <label className="mb-1.5 block text-xs font-medium text-ink">
                 Prompt
               </label>
-
               <select
                 value={selectedPromptId}
-                onChange={(event) =>
-                  setSelectedPromptId(
-                    event.target.value
-                  )
-                }
+                onChange={(e) => setSelectedPromptId(e.target.value)}
                 disabled={running}
                 className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
               >
-                <option value="">
-                  Select a prompt
-                </option>
-
-                {prompts.map((prompt) => (
-                  <option
-                    key={prompt.id}
-                    value={prompt.id}
-                  >
-                    {prompt.title}
+                <option value="">Select a prompt</option>
+                {prompts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title}
                   </option>
                 ))}
               </select>
@@ -539,33 +464,18 @@ export default function RepeatEvaluation() {
               <label className="mb-1.5 block text-xs font-medium text-ink">
                 Prompt version
               </label>
-
               <select
                 value={selectedVersionId}
-                onChange={(event) =>
-                  setSelectedVersionId(
-                    event.target.value
-                  )
-                }
-                disabled={
-                  running ||
-                  !selectedPromptId ||
-                  loadingVersions
-                }
+                onChange={(e) => setSelectedVersionId(e.target.value)}
+                disabled={running || !selectedPromptId || loadingVersions}
                 className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
               >
                 <option value="">
-                  {loadingVersions
-                    ? "Loading versions..."
-                    : "Select a version"}
+                  {loadingVersions ? "Loading versions..." : "Select a version"}
                 </option>
-
-                {versions.map((version) => (
-                  <option
-                    key={version.id}
-                    value={version.id}
-                  >
-                    v{version.version_number}
+                {versions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    v{v.version_number}
                   </option>
                 ))}
               </select>
@@ -576,100 +486,56 @@ export default function RepeatEvaluation() {
               <label className="mb-1.5 block text-xs font-medium text-ink">
                 Evaluation dataset
               </label>
-
               <select
                 value={selectedDatasetId}
-                onChange={(event) =>
-                  setSelectedDatasetId(
-                    event.target.value
-                  )
-                }
+                onChange={(e) => setSelectedDatasetId(e.target.value)}
                 disabled={running}
                 className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
               >
-                <option value="">
-                  Select a dataset
-                </option>
-
-                {datasets.map((dataset) => (
-                  <option
-                    key={dataset.id}
-                    value={dataset.id}
-                  >
-                    {dataset.name} ·{" "}
-                    {dataset.test_case_count} cases
+                <option value="">Select a dataset</option>
+                {datasets.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} · {d.test_case_count} cases
                   </option>
                 ))}
               </select>
-
-              {selectedDataset &&
-                Number(
-                  selectedDataset.test_case_count ||
-                    0
-                ) === 0 && (
-                  <p className="mt-2 text-xs text-error">
-                    This dataset has no test cases.
-                  </p>
-                )}
+              {selectedDataset && Number(selectedDataset.test_case_count || 0) === 0 && (
+                <p className="mt-2 text-xs text-error">
+                  This dataset has no test cases.
+                </p>
+              )}
             </div>
 
-            {/* Model */}
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-ink">
-                Model
-              </label>
+            {/* Model & Repeat Count */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-ink">
+                  Model
+                </label>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={running}
+                  className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
+                >
+                  <option value="gemma3:4b">gemma3:4b (Local Ollama)</option>
+                </select>
+              </div>
 
-              <select
-                value={model}
-                onChange={(event) =>
-                  setModel(event.target.value)
-                }
-                disabled={running}
-                className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
-              >
-                <option value="gemma3:4b">
-                  Gemma 3 4B
-                </option>
-              </select>
-            </div>
-
-            {/* Repeats */}
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-ink">
-                Number of repeats
-              </label>
-
-              <select
-                value={repeatCount}
-                onChange={(event) =>
-                  setRepeatCount(
-                    event.target.value
-                  )
-                }
-                disabled={running}
-                className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
-              >
-                <option value="2">
-                  2 repeats
-                </option>
-
-                <option value="3">
-                  3 repeats
-                </option>
-
-                <option value="4">
-                  4 repeats
-                </option>
-
-                <option value="5">
-                  5 repeats
-                </option>
-              </select>
-
-              <p className="mt-2 text-xs leading-5 text-muted">
-                Each repeat is stored as a separate
-                evaluation run.
-              </p>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-ink">
+                  Number of repeat runs (2–5)
+                </label>
+                <input
+                  type="number"
+                  min="2"
+                  max="5"
+                  value={repeatCount}
+                  onChange={(e) => setRepeatCount(e.target.value)}
+                  disabled={running}
+                  className="w-full rounded-control border border-border bg-background px-3 py-2.5 font-mono text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
+                />
+              </div>
             </div>
           </div>
 
@@ -677,13 +543,12 @@ export default function RepeatEvaluation() {
             <button
               type="submit"
               disabled={!canRun}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-control bg-brand px-4 py-3 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-control bg-brand px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {running ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                  Running {currentRepeat} of{" "}
-                  {numericRepeatCount}...
+                  Running trial {currentRepeat} of {numericRepeatCount}...
                 </>
               ) : (
                 <>
@@ -701,344 +566,277 @@ export default function RepeatEvaluation() {
                       d="M4 12a8 8 0 018-8M4 12a8 8 0 018 8M4 12h16"
                     />
                   </svg>
-
-                  Start Repeat Study
+                  Start Repeatability Study
                 </>
               )}
             </button>
-          </div>
-        </section>
-
-        {/* Preview */}
-        <section className="rounded-xl border border-border bg-surface p-6">
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-            Study design
-          </p>
-
-          <div className="mt-5 space-y-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.13em] text-muted">
-                Prompt
-              </p>
-
-              <p className="mt-1 text-sm font-medium text-ink">
-                {selectedPrompt?.title ||
-                  "Not selected"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.13em] text-muted">
-                Version
-              </p>
-
-              <p className="mt-1 font-mono text-sm text-ink">
-                {selectedVersion
-                  ? `v${selectedVersion.version_number}`
-                  : "—"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.13em] text-muted">
-                Dataset
-              </p>
-
-              <p className="mt-1 text-sm font-medium text-ink">
-                {selectedDataset?.name ||
-                  "Not selected"}
-              </p>
-
-              {selectedDataset && (
-                <p className="mt-1 text-xs text-muted">
-                  {selectedDataset.test_case_count}{" "}
-                  test cases
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-lg border border-dashed border-border bg-background p-4">
-              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-brand">
-                What gets measured
-              </p>
-
-              <div className="mt-3 space-y-2 text-sm text-muted">
-                <p>
-                  Mean score across repeated runs
-                </p>
-
-                <p>
-                  Score range and standard deviation
-                </p>
-
-                <p>
-                  Overall pass rate
-                </p>
-
-                <p>
-                  Per-test-case consistency
-                </p>
-              </div>
-            </div>
           </div>
         </section>
       </form>
 
       {/* Results */}
       {runs.length > 0 && (
-        <>
-          <section>
-            <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+        <div className="space-y-6">
+          <section className="space-y-4">
+            <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
               <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-                  Repeat study
-                </p>
-
-                <h2 className="mt-1 font-serif text-3xl text-ink">
-                  Consistency results
+                <h2 className="font-serif text-3xl text-ink">
+                  Consistency Results
                 </h2>
+                <p className="text-xs text-muted mt-0.5">
+                  Summary across {runs.length} completed repeat trial{runs.length === 1 ? "" : "s"}.
+                </p>
               </div>
 
               <button
                 type="button"
                 onClick={resetResults}
                 disabled={running}
-                className="w-fit rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:border-ink"
+                className="w-fit rounded-control border border-border bg-surface px-4 py-2 text-xs font-semibold text-ink hover:border-ink"
               >
                 Clear study
               </button>
             </div>
 
+            {/* Prominent High-Level Consistency Cards */}
             {summary && (
-              <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-                <div className="rounded-xl border border-border bg-surface p-4">
-                  <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
-                    Mean score
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-border bg-surface p-5 shadow-subtle">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                    Average Score
                   </p>
-
                   <p
-                    className={`mt-2 font-mono text-2xl font-semibold ${scoreClass(
+                    className={`mt-2 font-mono text-3xl font-semibold ${scoreClass(
                       summary.mean
                     )}`}
                   >
-                    {formatNumber(
-                      summary.mean
-                    )}
+                    {formatNumber(summary.mean, 1)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Mean score across {runs.length} trials
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border bg-surface p-4">
-                  <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
-                    Minimum
+                <div className="rounded-xl border border-border bg-surface p-5 shadow-subtle">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                    Overall Pass Rate
                   </p>
-
-                  <p className="mt-2 font-mono text-2xl text-ink">
-                    {formatNumber(
-                      summary.min
-                    )}
+                  <p className="mt-2 font-mono text-3xl font-semibold text-success">
+                    {formatNumber(summary.passRate, 1)}%
                   </p>
-                </div>
-
-                <div className="rounded-xl border border-border bg-surface p-4">
-                  <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
-                    Maximum
-                  </p>
-
-                  <p className="mt-2 font-mono text-2xl text-ink">
-                    {formatNumber(
-                      summary.max
-                    )}
+                  <p className="mt-1 text-xs text-muted">
+                    {summary.passedRuns} of {runs.length} trials passed all tests
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border bg-surface p-4">
-                  <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
-                    Range
+                <div className="rounded-xl border border-border bg-surface p-5 shadow-subtle">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                    Consistency Rating
                   </p>
-
-                  <p className="mt-2 font-mono text-2xl text-ink">
-                    {formatNumber(
-                      summary.range
-                    )}
+                  <p className={`mt-2 font-serif text-2xl font-semibold ${rating?.color}`}>
+                    {rating?.label}
                   </p>
-                </div>
-
-                <div className="rounded-xl border border-border bg-surface p-4">
-                  <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
-                    Std deviation
-                  </p>
-
-                  <p className="mt-2 font-mono text-2xl text-ink">
-                    {formatNumber(
-                      summary.deviation
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-border bg-surface p-4">
-                  <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
-                    Pass rate
-                  </p>
-
-                  <p className="mt-2 font-mono text-2xl text-success">
-                    {formatNumber(
-                      summary.passRate,
-                      1
-                    )}
-                    %
+                  <p className="mt-1 text-xs text-muted">
+                    {rating?.text}
                   </p>
                 </div>
               </div>
             )}
+
+            {/* Plain-English Variability Explanation Banner */}
+            {summary && (
+              <div className="rounded-xl border border-brand/20 bg-brand/5 p-4 text-sm leading-6 text-ink">
+                <p>{plainEnglishVariability(summary, runs.length)}</p>
+              </div>
+            )}
           </section>
 
-          {/* Individual runs */}
-          <section className="rounded-xl border border-border bg-surface">
-            <div className="border-b border-border p-5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
-                Individual trials
-              </p>
-
-              <h3 className="mt-1 font-serif text-2xl text-ink">
-                Run distribution
-              </h3>
-            </div>
-
-            <div className="divide-y divide-border">
-              {runs.map((run, index) => (
-                <div
-                  key={run.id}
-                  className="grid gap-3 px-5 py-4 md:grid-cols-[0.6fr_1.5fr_0.8fr_0.8fr_0.8fr] md:items-center"
+          {/* Expandable Detailed Statistics Section */}
+          <details className="rounded-xl border border-border bg-surface shadow-subtle group">
+            <summary className="flex cursor-pointer list-none items-center justify-between p-5 text-sm font-semibold text-ink hover:text-brand">
+              <div className="flex items-center gap-2">
+                <svg
+                  width="14"
+                  height="14"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="transition-transform group-open:rotate-90"
                 >
-                  <p className="font-mono text-xs text-muted">
-                    Trial {index + 1}
-                  </p>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 18l6-6-6-6"
+                  />
+                </svg>
+                <span>Detailed statistics &amp; per-case breakdown</span>
+              </div>
+              <span className="font-mono text-xs text-muted">Click to expand</span>
+            </summary>
 
-                  <div>
-                    <p className="text-sm font-medium text-ink">
-                      Evaluation #{run.id}
-                    </p>
-
-                    <p className="mt-1 text-xs text-muted">
-                      {formatDate(
-                        run.created_at
-                      )}
-                    </p>
-                  </div>
-
-                  <p
-                    className={`font-mono text-lg font-semibold ${scoreClass(
-                      run.overall_score
-                    )}`}
-                  >
-                    {run.overall_score}
-                  </p>
-
-                  <p className="font-mono text-sm text-success">
-                    {run.passed_cases}/
-                    {run.total_cases} passed
-                  </p>
-
-                  <p className="font-mono text-sm text-muted">
-                    {run.status}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Per-case */}
-          <section className="rounded-xl border border-border bg-surface">
-            <div className="border-b border-border p-5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
-                Case stability
-              </p>
-
-              <h3 className="mt-1 font-serif text-2xl text-ink">
-                Test-case consistency
-              </h3>
-            </div>
-
-            <div className="overflow-x-auto">
-              <div className="min-w-[760px]">
-                <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] border-b border-border bg-background px-5 py-3">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                    Test case
-                  </p>
-
-                  <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                    Mean
-                  </p>
-
-                  <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                    Min
-                  </p>
-
-                  <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                    Max
-                  </p>
-
-                  <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                    Std Dev
-                  </p>
-
-                  <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-                    Pass Rate
-                  </p>
-                </div>
-
-                {caseStats.map((item) => (
-                  <div
-                    key={item.id}
-                    className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] border-b border-border px-5 py-4 last:border-b-0"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-ink">
-                        {item.name}
+            <div className="border-t border-border p-6 space-y-8">
+              {/* Technical Range & Standard Deviation Metrics */}
+              {summary && (
+                <div>
+                  <h4 className="text-sm font-semibold text-ink mb-3">
+                    Statistical spread metrics
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg border border-border bg-background p-3.5">
+                      <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+                        Lowest Score
                       </p>
-
-                      <p className="mt-1 font-mono text-[9px] text-muted">
-                        Case #{item.id}
+                      <p className="mt-1.5 font-mono text-xl font-semibold text-ink">
+                        {formatNumber(summary.min, 1)}
                       </p>
                     </div>
 
-                    <p className="text-right font-mono text-sm text-ink">
-                      {formatNumber(
-                        item.mean
-                      )}
-                    </p>
+                    <div className="rounded-lg border border-border bg-background p-3.5">
+                      <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+                        Highest Score
+                      </p>
+                      <p className="mt-1.5 font-mono text-xl font-semibold text-ink">
+                        {formatNumber(summary.max, 1)}
+                      </p>
+                    </div>
 
-                    <p className="text-right font-mono text-sm text-ink">
-                      {formatNumber(
-                        item.min
-                      )}
-                    </p>
+                    <div className="rounded-lg border border-border bg-background p-3.5">
+                      <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+                        Score Range (Spread)
+                      </p>
+                      <p className="mt-1.5 font-mono text-xl font-semibold text-ink">
+                        {formatNumber(summary.range, 1)} pts
+                      </p>
+                    </div>
 
-                    <p className="text-right font-mono text-sm text-ink">
-                      {formatNumber(
-                        item.max
-                      )}
-                    </p>
-
-                    <p className="text-right font-mono text-sm text-ink">
-                      {formatNumber(
-                        item.deviation
-                      )}
-                    </p>
-
-                    <p className="text-right font-mono text-sm text-success">
-                      {formatNumber(
-                        item.passRate,
-                        1
-                      )}
-                      %
-                    </p>
+                    <div className="rounded-lg border border-border bg-background p-3.5">
+                      <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+                        Std Deviation
+                      </p>
+                      <p className="mt-1.5 font-mono text-xl font-semibold text-ink">
+                        {formatNumber(summary.deviation, 2)}
+                      </p>
+                    </div>
                   </div>
-                ))}
+                </div>
+              )}
+
+              {/* Individual Trials Table */}
+              <div>
+                <h4 className="text-sm font-semibold text-ink mb-2">
+                  Individual trial runs
+                </h4>
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <div className="min-w-[540px]">
+                    <div className="grid grid-cols-[0.5fr_1.6fr_0.8fr_0.8fr_0.6fr] border-b border-border bg-background px-5 py-3">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Trial</p>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Run ID</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Score</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Passed</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Status</p>
+                    </div>
+
+                    {runs.map((run, index) => (
+                      <div
+                        key={run.id}
+                        className="grid grid-cols-[0.5fr_1.6fr_0.8fr_0.8fr_0.6fr] border-b border-border px-5 py-3 last:border-b-0"
+                      >
+                        <p className="font-mono text-xs text-muted self-center">
+                          Trial {index + 1}
+                        </p>
+
+                        <div className="self-center">
+                          <p className="text-sm font-medium text-ink">
+                            Evaluation #{run.id}
+                          </p>
+                          <p className="mt-0.5 font-mono text-[10px] text-muted">
+                            {formatDate(run.created_at)}
+                          </p>
+                        </div>
+
+                        <p
+                          className={`self-center text-right font-mono text-sm font-semibold ${scoreClass(
+                            run.overall_score
+                          )}`}
+                        >
+                          {run.overall_score}
+                        </p>
+
+                        <p className="self-center text-right font-mono text-sm text-success">
+                          {run.passed_cases}/{run.total_cases}
+                        </p>
+
+                        <p className="self-center text-right font-mono text-xs text-muted">
+                          {run.status}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Case-by-Case Consistency Table */}
+              <div>
+                <h4 className="text-sm font-semibold text-ink mb-1">
+                  Per-case variability
+                </h4>
+                <p className="text-xs text-muted mb-3">
+                  Score consistency for each test case across the repeated executions.
+                </p>
+
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <div className="min-w-[560px]">
+                    <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] border-b border-border bg-background px-5 py-3">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Test Case</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Mean</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Min</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Max</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Std Dev</p>
+                      <p className="text-right font-mono text-[10px] uppercase tracking-[0.1em] text-muted">Pass Rate</p>
+                    </div>
+
+                    {caseStats.map((item) => (
+                      <div
+                        key={item.id}
+                        className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] border-b border-border px-5 py-3.5 last:border-b-0"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-ink">
+                            {item.name || `Case #${item.id}`}
+                          </p>
+                          <p className="mt-0.5 font-mono text-[9px] text-muted">
+                            Case #{item.id}
+                          </p>
+                        </div>
+
+                        <p className="text-right font-mono text-sm text-ink self-center">
+                          {formatNumber(item.mean, 1)}
+                        </p>
+
+                        <p className="text-right font-mono text-sm text-ink self-center">
+                          {formatNumber(item.min, 1)}
+                        </p>
+
+                        <p className="text-right font-mono text-sm text-ink self-center">
+                          {formatNumber(item.max, 1)}
+                        </p>
+
+                        <p className="text-right font-mono text-sm text-ink self-center">
+                          {formatNumber(item.deviation, 2)}
+                        </p>
+
+                        <p className="text-right font-mono text-sm text-success self-center">
+                          {formatNumber(item.passRate, 0)}%
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
-          </section>
-        </>
+          </details>
+        </div>
       )}
     </div>
   );

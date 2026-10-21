@@ -74,3 +74,22 @@ export async function createPromptVersion(promptId, {
     }),
   });
 }
+
+export async function improvePrompt({
+  prompt_text,
+  context = "",
+  tone = "",
+  output_format = "",
+  model = "gemma3:4b",
+}) {
+  return apiRequest("/prompts/improve/", {
+    method: "POST",
+    body: JSON.stringify({
+      prompt_text,
+      context,
+      tone,
+      output_format,
+      model,
+    }),
+  });
+}

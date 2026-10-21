@@ -126,10 +126,10 @@ export default function Executions() {
               key={execution.id}
               className="rounded-card border border-border bg-surface p-5 shadow-subtle transition-all duration-200 hover:-translate-y-0.5 hover:shadow-raised"
             >
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div>
 
                 {/* Main */}
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0">
 
                   <div className="flex flex-wrap items-center gap-2">
 
@@ -161,94 +161,61 @@ export default function Executions() {
                     {execution.model}
                   </p>
 
-                  {/* Input */}
-                  <div className="mt-4 rounded-control border border-border bg-background p-4">
-                    <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-muted">
-                      Input
-                    </div>
-
-                    <p className="line-clamp-3 whitespace-pre-wrap font-mono text-xs leading-6 text-ink">
-                      {execution.input_text}
-                    </p>
-                  </div>
-
-                  {/* Output preview */}
-                  {execution.output_text && (
-                    <div className="mt-3 rounded-control border border-border bg-background p-4">
-                      <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-muted">
-                        Response
-                      </div>
-
-                      <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-ink">
-                        {execution.output_text}
-                      </p>
-                    </div>
-                  )}
-
                   {execution.error_message && (
                     <div className="mt-3 rounded-control border border-error/20 bg-error/5 p-4 text-sm text-error">
                       {execution.error_message}
                     </div>
                   )}
-                </div>
 
-                {/* Metrics */}
-                <div className="w-full shrink-0 lg:w-48">
+                  {/* Metrics inline */}
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-4">
+                    <div className="flex flex-wrap gap-4">
+                      <div>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+                          Duration
+                        </p>
+                        <p className="mt-0.5 font-mono text-xs font-semibold">
+                          {formatDuration(execution.total_duration)}
+                        </p>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+                      <div>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+                          In tokens
+                        </p>
+                        <p className="mt-0.5 font-mono text-xs font-semibold">
+                          {execution.prompt_eval_count ?? "—"}
+                        </p>
+                      </div>
 
-                    <div className="rounded-control border border-border p-3">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-                        Duration
-                      </p>
+                      <div>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+                          Out tokens
+                        </p>
+                        <p className="mt-0.5 font-mono text-xs font-semibold">
+                          {execution.eval_count ?? "—"}
+                        </p>
+                      </div>
 
-                      <p className="mt-1 font-mono text-xs font-semibold">
-                        {formatDuration(
-                          execution.total_duration
-                        )}
-                      </p>
+                      <div>
+                        <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+                          Executed
+                        </p>
+                        <p className="mt-0.5 text-xs font-medium">
+                          {formatDate(execution.created_at)}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="rounded-control border border-border p-3">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-                        Input Tokens
-                      </p>
-
-                      <p className="mt-1 font-mono text-xs font-semibold">
-                        {execution.prompt_eval_count ?? "—"}
-                      </p>
-                    </div>
-
-                    <div className="rounded-control border border-border p-3">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-                        Output Tokens
-                      </p>
-
-                      <p className="mt-1 font-mono text-xs font-semibold">
-                        {execution.eval_count ?? "—"}
-                      </p>
-                    </div>
-
-                    <div className="rounded-control border border-border p-3">
-                      <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
-                        Executed
-                      </p>
-
-                      <p className="mt-1 text-xs font-medium">
-                        {formatDate(execution.created_at)}
-                      </p>
-                    </div>
-
+                    <button
+                      onClick={() =>
+                        navigate(`/dashboard/executions/${execution.id}`)
+                      }
+                      className="rounded-control border border-border bg-surface px-4 py-2 text-xs font-semibold transition-colors hover:border-brand hover:text-brand"
+                    >
+                      View Run →
+                    </button>
                   </div>
-
-                  <button
-                    onClick={() =>
-                      navigate(`/dashboard/executions/${execution.id}`)
-                    }
-                    className="mt-4 w-full rounded-control border border-border bg-surface px-4 py-2.5 text-xs font-semibold transition-colors hover:border-brand hover:text-brand"
-                  >
-                    View Run →
-                  </button>
 
                 </div>
               </div>

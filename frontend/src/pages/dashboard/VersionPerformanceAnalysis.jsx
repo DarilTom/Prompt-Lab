@@ -811,34 +811,57 @@ export default function VersionPerformanceAnalysis() {
             </label>
           </div>
 
-          <div className="mt-4 divide-y divide-border border-t border-border">
-            {flaggedRuns.map(({ run, issue }) => (
-              <div
-                key={run.id}
-                className="flex flex-col justify-between gap-2 py-3 sm:flex-row sm:items-center"
-              >
-                <div>
-                  <p className="text-sm font-medium text-ink">
-                    Evaluation #{run.id} · v{run.version_number}
-                  </p>
+          <details className="mt-4 border-t border-border pt-3">
+            <summary className="cursor-pointer list-none text-xs font-medium text-muted hover:text-ink">
+              <span className="inline-flex items-center gap-1.5">
+                <svg
+                  width="12"
+                  height="12"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="transition-transform [[open]_&]:rotate-90"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 18l6-6-6-6"
+                  />
+                </svg>
+                Show flagged run details
+              </span>
+            </summary>
 
-                  <p className="mt-1 text-xs text-muted">
-                    {run.prompt_title} · {run.dataset_name}
-                  </p>
+            <div className="mt-3 divide-y divide-border">
+              {flaggedRuns.map(({ run, issue }) => (
+                <div
+                  key={run.id}
+                  className="flex flex-col justify-between gap-2 py-3 sm:flex-row sm:items-center"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-ink">
+                      Evaluation #{run.id} · v{run.version_number}
+                    </p>
+
+                    <p className="mt-1 text-xs text-muted">
+                      {run.prompt_title} · {run.dataset_name}
+                    </p>
+                  </div>
+
+                  <div className="sm:text-right">
+                    <p className="font-mono text-sm text-ink">
+                      Score: {run.overall_score ?? "—"}
+                    </p>
+
+                    <p className="mt-1 max-w-md text-xs text-error">
+                      {issue}
+                    </p>
+                  </div>
                 </div>
-
-                <div className="sm:text-right">
-                  <p className="font-mono text-sm text-ink">
-                    Score: {run.overall_score ?? "—"}
-                  </p>
-
-                  <p className="mt-1 max-w-md text-xs text-error">
-                    {issue}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </details>
         </section>
       )}
 
@@ -859,142 +882,154 @@ export default function VersionPerformanceAnalysis() {
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink">
-              Prompt
-            </label>
+        <div className="space-y-5">
+          {/* Row 1: Experiment conditions */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-ink">
+                Prompt
+              </label>
 
-            <select
-              value={promptId}
-              onChange={(event) => setPromptId(event.target.value)}
-              className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-            >
-              <option value="">Select prompt</option>
+              <select
+                value={promptId}
+                onChange={(event) => setPromptId(event.target.value)}
+                className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">Select prompt</option>
 
-              {promptOptions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
+                {promptOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-ink">
+                Dataset
+              </label>
+
+              <select
+                value={datasetId}
+                onChange={(event) => setDatasetId(event.target.value)}
+                className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">Select dataset</option>
+
+                {datasetOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-ink">
+                Model
+              </label>
+
+              <select
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+                className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">Select model</option>
+
+                {modelOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink">
-              Dataset
-            </label>
+          <div className="border-t border-border" />
 
-            <select
-              value={datasetId}
-              onChange={(event) => setDatasetId(event.target.value)}
-              className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-            >
-              <option value="">Select dataset</option>
+          {/* Row 2: Version comparison */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-ink">
+                Baseline version
+              </label>
 
-              {datasetOptions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </div>
+              <select
+                value={versionAId}
+                onChange={(event) => setVersionAId(event.target.value)}
+                className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">Select baseline version</option>
 
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink">
-              Model
-            </label>
+                {versionOptions.map((item) => (
+                  <option
+                    key={item.promptVersionId}
+                    value={item.promptVersionId}
+                    disabled={item.promptVersionId === versionBId}
+                  >
+                    {versionLabel(item)}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <select
-              value={model}
-              onChange={(event) => setModel(event.target.value)}
-              className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-            >
-              <option value="">Select model</option>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-ink">
+                Comparison version
+              </label>
 
-              {modelOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
+              <select
+                value={versionBId}
+                onChange={(event) => setVersionBId(event.target.value)}
+                className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">Select comparison version</option>
 
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink">
-              Baseline version
-            </label>
+                {versionOptions.map((item) => (
+                  <option
+                    key={item.promptVersionId}
+                    value={item.promptVersionId}
+                    disabled={item.promptVersionId === versionAId}
+                  >
+                    {versionLabel(item)}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <select
-              value={versionAId}
-              onChange={(event) => setVersionAId(event.target.value)}
-              className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-            >
-              <option value="">Select baseline version</option>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-ink">
+                Score-change threshold
+              </label>
 
-              {versionOptions.map((item) => (
-                <option
-                  key={item.promptVersionId}
-                  value={item.promptVersionId}
-                  disabled={item.promptVersionId === versionBId}
-                >
-                  {versionLabel(item)}
-                </option>
-              ))}
-            </select>
-          </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0.5"
+                  max="50"
+                  step="0.5"
+                  value={threshold}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
 
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink">
-              Comparison version
-            </label>
+                    if (
+                      Number.isFinite(value) &&
+                      value >= 0.5 &&
+                      value <= 50
+                    ) {
+                      setThreshold(value);
+                    }
+                  }}
+                  className="w-full rounded-control border border-border bg-background px-3 py-2.5 font-mono text-sm text-ink outline-none focus:border-brand"
+                />
 
-            <select
-              value={versionBId}
-              onChange={(event) => setVersionBId(event.target.value)}
-              className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-            >
-              <option value="">Select comparison version</option>
+                <span className="text-xs text-muted">pts</span>
+              </div>
 
-              {versionOptions.map((item) => (
-                <option
-                  key={item.promptVersionId}
-                  value={item.promptVersionId}
-                  disabled={item.promptVersionId === versionAId}
-                >
-                  {versionLabel(item)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink">
-              Material score-change threshold
-            </label>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min="0.5"
-                max="50"
-                step="0.5"
-                value={threshold}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-
-                  if (
-                    Number.isFinite(value) &&
-                    value >= 0.5 &&
-                    value <= 50
-                  ) {
-                    setThreshold(value);
-                  }
-                }}
-                className="w-full rounded-control border border-border bg-background px-3 py-2.5 font-mono text-sm text-ink outline-none focus:border-brand"
-              />
-
-              <span className="text-xs text-muted">points</span>
+              <p className="mt-1.5 text-[10px] leading-4 text-muted">
+                Changes smaller than this are treated as no material change.
+              </p>
             </div>
           </div>
         </div>
@@ -1197,6 +1232,10 @@ export default function VersionPerformanceAnalysis() {
             </div>
           </section>
 
+          <p className="text-[10px] leading-5 text-muted">
+            Mean-score changes are descriptive comparisons, not proof that the prompt change caused the difference. Standard deviation is unavailable when a version has fewer than two scored runs. The selected threshold is an application setting, not a universal definition of improvement or regression.
+          </p>
+
           {/* Criterion-level analysis */}
           <section className="rounded-xl border border-border bg-surface">
             <div className="border-b border-border p-5">
@@ -1396,22 +1435,6 @@ export default function VersionPerformanceAnalysis() {
                 </tbody>
               </table>
             </div>
-          </section>
-
-          {/* Interpretation notes */}
-          <section className="rounded-lg border border-border bg-background p-4">
-            <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
-              Interpretation note
-            </p>
-
-            <p className="mt-2 text-xs leading-5 text-muted">
-              Mean-score changes are descriptive comparisons, not proof
-              that the prompt change caused the difference. Standard
-              deviation is unavailable when a version has fewer than
-              two scored runs. The selected threshold is an application
-              setting, not a universal definition of improvement or
-              regression.
-            </p>
           </section>
 
           {/* Navigation */}

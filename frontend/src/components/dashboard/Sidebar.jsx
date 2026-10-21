@@ -18,6 +18,12 @@ const icons = {
     </svg>
   ),
 
+  improver: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v3m6.364.636l-2.121 2.121M21 12h-3m.636 6.364l-2.121-2.121M12 21v-3m-6.364.636l2.121-2.121M3 12h3m-.636-6.364l2.121 2.121M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  ),
+
   evaluations: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 3h6M10 3v3H7a2 2 0 00-2 2v11a2 2 0 002 2h10a2 2 0 002-2V8a2 2 0 00-2-2h-3V3" />
@@ -60,32 +66,43 @@ const icons = {
   ),
 }
 
-const primaryNav = [
+const primaryNavBeforeEval = [
   {
     to: '/dashboard',
-    label: 'Overview',
-    icon: icons.overview,
-    end: true,
+    label: 'Prompt Improver',
+    icon: icons.improver,
+    match: (pathname) =>
+      pathname === '/dashboard' || pathname === '/dashboard/prompts/improve',
   },
   {
     to: '/dashboard/prompts',
     label: 'Prompt Library',
     icon: icons.prompts,
+    match: (pathname) =>
+      pathname === '/dashboard/prompts' ||
+      (pathname.startsWith('/dashboard/prompts/') &&
+        pathname !== '/dashboard/prompts/improve'),
   },
+]
+
+const primaryNavAfterEval = [
   {
     to: '/dashboard/executions',
     label: 'Execution History',
     icon: icons.executions,
+    match: (pathname) => pathname.startsWith('/dashboard/executions'),
   },
   {
     to: '/dashboard/comparisons',
     label: 'Response Comparison',
     icon: icons.comparisons,
+    match: (pathname) => pathname.startsWith('/dashboard/comparisons'),
   },
   {
     to: '/dashboard/analytics',
     label: 'Analytics',
     icon: icons.analytics,
+    match: (pathname) => pathname.startsWith('/dashboard/analytics'),
   },
 ]
 
@@ -174,24 +191,22 @@ export default function Sidebar() {
         </p>
 
         <ul className="space-y-0.5" role="list">
-          {primaryNav.slice(0, 2).map(
-            ({ to, label, icon, end }) => (
+          {primaryNavBeforeEval.map(({ to, label, icon, match }) => {
+            const isActive = match(location.pathname)
+            return (
               <li key={to}>
                 <NavLink
                   to={to}
-                  end={end}
-                  className={({ isActive }) =>
-                    `${linkBase} ${
-                      isActive ? activeClass : inactiveClass
-                    }`
-                  }
+                  className={`${linkBase} ${
+                    isActive ? activeClass : inactiveClass
+                  }`}
                 >
                   {icon}
                   <span>{label}</span>
                 </NavLink>
               </li>
             )
-          )}
+          })}
 
           {/* Expandable Evaluation Lab */}
           <li>
@@ -275,29 +290,39 @@ export default function Sidebar() {
             )}
           </li>
 
-          {primaryNav.slice(2).map(
-            ({ to, label, icon, end }) => (
+          {primaryNavAfterEval.map(({ to, label, icon, match }) => {
+            const isActive = match(location.pathname)
+            return (
               <li key={to}>
                 <NavLink
                   to={to}
-                  end={end}
-                  className={({ isActive }) =>
-                    `${linkBase} ${
-                      isActive ? activeClass : inactiveClass
-                    }`
-                  }
+                  className={`${linkBase} ${
+                    isActive ? activeClass : inactiveClass
+                  }`}
                 >
                   {icon}
                   <span>{label}</span>
                 </NavLink>
               </li>
             )
-          )}
+          })}
         </ul>
       </nav>
 
-      {/* Settings, profile, and sign out */}
+      {/* Overview, settings, profile, and sign out */}
       <div className="shrink-0 space-y-0.5 border-t border-border px-3 py-3">
+        <NavLink
+          to="/dashboard/overview"
+          className={`${linkBase} ${
+            location.pathname === '/dashboard/overview'
+              ? activeClass
+              : inactiveClass
+          }`}
+        >
+          {icons.overview}
+          <span>Overview</span>
+        </NavLink>
+
         <NavLink
           to="/dashboard/settings"
           className={({ isActive }) =>

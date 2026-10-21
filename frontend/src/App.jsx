@@ -14,6 +14,7 @@ import DashboardLayout from "./components/dashboard/DashboardLayout";
 import Overview from "./pages/dashboard/Overview";
 import Prompts from "./pages/dashboard/Prompts";
 import NewPrompt from "./pages/dashboard/NewPrompt";
+import PromptImprover from "./pages/dashboard/PromptImprover";
 import Executions from "./pages/dashboard/Executions";
 import ExecutionDetail from "./pages/dashboard/ExecutionDetail";
 import Comparisons from "./pages/dashboard/Comparisons";
@@ -52,9 +53,11 @@ function App() {
         {/* Authenticated dashboard */}
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardLayout />}>
-            <Route index element={<Overview />} />
+            <Route index element={<PromptImprover />} />
+            <Route path="overview" element={<Overview />} />
             <Route path="prompts" element={<Prompts />} />
             <Route path="prompts/new" element={<NewPrompt />} />
+            <Route path="prompts/improve" element={<PromptImprover />} />
             <Route path="prompts/:id" element={<PromptDetail />} />
             <Route path="evaluations" element={<Evaluations />} />
             <Route path="evaluations/run" element={<RunEvaluation />} />

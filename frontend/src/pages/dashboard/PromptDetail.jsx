@@ -118,6 +118,19 @@ export default function PromptDetail() {
     loadVersions();
   }, [id]);
 
+  useEffect(() => {
+    if (
+      !loading &&
+      (window.location.hash === "#execution-sandbox" ||
+        window.location.hash === "#sandbox")
+    ) {
+      const el = document.getElementById("execution-sandbox");
+      if (el) {
+        setTimeout(() => el.scrollIntoView({ behavior: "smooth" }), 150);
+      }
+    }
+  }, [loading]);
+
   async function loadPrompt() {
     try {
       setLoading(true);
@@ -403,7 +416,10 @@ export default function PromptDetail() {
       </section>
 
       {/* Execution Sandbox */}
-      <section className="rounded-card border border-border bg-surface shadow-subtle">
+      <section
+        id="execution-sandbox"
+        className="rounded-card border border-border bg-surface shadow-subtle"
+      >
 
         <div className="border-b border-border px-6 py-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

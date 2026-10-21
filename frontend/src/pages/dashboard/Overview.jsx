@@ -200,18 +200,18 @@ export default function Overview() {
   return (
     <div className="space-y-7 pb-10">
 
-      {/* Greeting */}
+      {/* Page header */}
       <div>
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
           Experiment workspace
         </p>
 
         <h2 className="mt-1 font-serif text-3xl text-ink">
-          Welcome, {user?.name?.split(" ")[0] || "there"}.
+          Your workspace
         </h2>
 
         <p className="mt-1 text-sm text-muted">
-          Here's what's happening in your lab right now.
+          A summary of your prompt library, experiment executions, and lab performance.
         </p>
       </div>
 

@@ -5,8 +5,10 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import Prompt, PromptVersion
 from .serializers import (
@@ -14,6 +16,7 @@ from .serializers import (
     PromptSerializer,
     PromptVersionSerializer,
 )
+from .services import generate_improved_prompt
 
 
 class PromptListCreateView(generics.ListCreateAPIView):
@@ -150,3 +153,42 @@ class PromptVersionListCreateView(generics.ListCreateAPIView):
             version_number=next_version,
             created_by=self.request.user,
         )
+
+
+class PromptImproveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        prompt_text = request.data.get("prompt_text", "")
+        if not isinstance(prompt_text, str) or not prompt_text.strip():
+            return Response(
+                {"detail": "Please describe what you want the AI to accomplish."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        context = request.data.get("context", "")
+        tone = request.data.get("tone", "")
+        output_format = request.data.get("output_format", "")
+        model = request.data.get("model", "gemma3:4b")
+        if not model or not str(model).strip():
+            model = "gemma3:4b"
+
+        try:
+            result = generate_improved_prompt(
+                prompt_text=prompt_text.strip(),
+                context=str(context).strip() if context else "",
+                tone=str(tone).strip() if tone else "",
+                output_format=str(output_format).strip() if output_format else "",
+                model=str(model).strip(),
+            )
+            return Response(result, status=status.HTTP_200_OK)
+        except (ConnectionError, TimeoutError) as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception as e:
+            return Response(
+                {"detail": f"Unable to improve prompt: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

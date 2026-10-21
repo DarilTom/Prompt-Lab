@@ -120,6 +120,8 @@ function ExecutionSelectCard({
 }
 
 function ResponsePanel({ execution, label }) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className="rounded-card border border-border bg-surface shadow-subtle">
 
@@ -165,13 +167,27 @@ function ResponsePanel({ execution, label }) {
             Response
           </div>
 
-          <div className="min-h-64 rounded-control border border-border bg-background p-4">
+          <div
+            className={`rounded-control border border-border bg-background p-4 overflow-hidden transition-all ${
+              expanded ? "" : "max-h-64"
+            }`}
+          >
             <p className="whitespace-pre-wrap text-sm leading-7">
               {execution.output_text ||
                 execution.error_message ||
                 "No response available."}
             </p>
           </div>
+
+          {!expanded && (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="mt-2 text-xs font-medium text-muted hover:text-ink"
+            >
+              Show full response ↓
+            </button>
+          )}
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -350,13 +366,13 @@ export default function Comparisons() {
           {/* Selectors */}
           <section>
             <div className="mb-4">
-              <h2 className="font-serif text-3xl">
-                Choose Experiments
-              </h2>
-
-              <p className="mt-1 text-sm text-muted">
-                Select two completed runs to compare.
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+                Choose experiments
               </p>
+
+              <h2 className="mt-1 font-serif text-2xl text-ink">
+                Select two completed runs to compare.
+              </h2>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -411,78 +427,6 @@ export default function Comparisons() {
 
               </div>
 
-              {/* Summary */}
-              <div className="mt-6 rounded-card border border-border bg-surface p-5 shadow-subtle">
-
-                <h3 className="text-base font-semibold">
-                  Metric Summary
-                </h3>
-
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left">
-                        <th className="pb-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                          Metric
-                        </th>
-
-                        <th className="pb-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                          Experiment A
-                        </th>
-
-                        <th className="pb-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                          Experiment B
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-
-                      <MetricRow
-                        label="Version"
-                        left={`v${leftExecution.version_number}`}
-                        right={`v${rightExecution.version_number}`}
-                      />
-
-                      <MetricRow
-                        label="Model"
-                        left={leftExecution.model}
-                        right={rightExecution.model}
-                      />
-
-                      <MetricRow
-                        label="Duration"
-                        left={formatDuration(
-                          leftExecution.total_duration
-                        )}
-                        right={formatDuration(
-                          rightExecution.total_duration
-                        )}
-                      />
-
-                      <MetricRow
-                        label="Input Tokens"
-                        left={leftExecution.prompt_eval_count ?? "—"}
-                        right={rightExecution.prompt_eval_count ?? "—"}
-                      />
-
-                      <MetricRow
-                        label="Output Tokens"
-                        left={leftExecution.eval_count ?? "—"}
-                        right={rightExecution.eval_count ?? "—"}
-                      />
-
-                      <MetricRow
-                        label="Output Speed"
-                        left={tokensPerSecond(leftExecution)}
-                        right={tokensPerSecond(rightExecution)}
-                      />
-
-                    </tbody>
-                  </table>
-                </div>
-
-              </div>
             </section>
           ) : (
             <div className="rounded-card border border-border bg-surface p-8 text-center text-sm text-muted">
@@ -493,23 +437,5 @@ export default function Comparisons() {
       )}
 
     </div>
-  );
-}
-
-function MetricRow({ label, left, right }) {
-  return (
-    <tr className="border-b border-border last:border-0">
-      <td className="py-3 font-medium text-muted">
-        {label}
-      </td>
-
-      <td className="py-3 font-mono text-xs">
-        {left}
-      </td>
-
-      <td className="py-3 font-mono text-xs">
-        {right}
-      </td>
-    </tr>
   );
 }
