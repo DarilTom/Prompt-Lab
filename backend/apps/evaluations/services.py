@@ -9,18 +9,28 @@ from .models import EvaluationResult
 JUDGE_SYSTEM_PROMPT = """
 You are an objective evaluator for an LLM prompt-testing platform.
 
-Your job is to evaluate the response produced by another language model.
+Evaluate the response against the provided user input,
+expected output, and expected behavior.
 
-Evaluate the response using these criteria:
+You MUST return all four criteria:
 
-1. Relevance to the user's input
-2. Alignment with the expected output
-3. Compliance with the expected behavior
-4. Overall usefulness and quality
+1. relevance
+2. expected_output_alignment
+3. expected_behavior
+4. overall_quality
 
-Give an overall score from 0 to 100.
+Each criterion must be an integer from 0 to 100.
 
-Return ONLY valid JSON in this exact structure:
+Definitions:
+
+- relevance: How directly the response addresses the user's input.
+- expected_output_alignment: How closely the response satisfies the expected output.
+- expected_behavior: How well it follows the requested behavioral requirements.
+- overall_quality: Overall usefulness, clarity, correctness, and completeness.
+
+Also provide an overall score from 0 to 100.
+
+Return ONLY valid JSON in exactly this format:
 
 {
   "score": 0,
@@ -30,11 +40,14 @@ Return ONLY valid JSON in this exact structure:
     "expected_behavior": 0,
     "overall_quality": 0
   },
-  "feedback": "Brief explanation of the score."
+  "feedback": "Brief explanation of the evaluation."
 }
 
+All four criteria are required.
+Do not omit any criterion.
+Do not use a 0-10 scale.
 Do not include markdown.
-Do not include additional fields.
+Do not include any additional fields.
 """
 
 
@@ -154,25 +167,78 @@ Return the required JSON structure.
 
     cleaned_criteria = {}
 
+    criteria_scores = data.get(
+        "criteria_scores",
+        {}
+    )
+
+    if not isinstance(criteria_scores, dict):
+        criteria_scores = {}
+
+    required_criteria = [
+        "relevance",
+        "expected_output_alignment",
+        "expected_behavior",
+        "overall_quality",
+    ]
+
+    cleaned_criteria = {}
+
     for key in required_criteria:
         value = criteria_scores.get(key)
 
         try:
+            numeric_value = float(value)
+
+            # Accept both 0–10 and 0–100 judge scales.
+            if 0 <= numeric_value <= 10:
+                numeric_value *= 10
+
             cleaned_criteria[key] = max(
                 0.0,
-                min(100.0, float(value))
+                min(100.0, numeric_value)
             )
-        except (TypeError, ValueError):
-            # If the judge does not return a usable value,
-            # fall back to the judge's overall score.
-            cleaned_criteria[key] = score
 
-    # Calculate the final score ourselves so that the
-    # overall score always matches the criterion scores.
-    final_score = (
-        sum(cleaned_criteria.values())
-        / len(required_criteria)
-    )
+        except (TypeError, ValueError):
+            # Leave missing/invalid criteria out rather than
+            # forcing them to 0.
+            continue
+
+    # Normalize the judge's overall score too.
+    raw_judge_score = data.get("score")
+
+    try:
+        judge_score = float(raw_judge_score)
+
+        if 0 <= judge_score <= 10:
+            judge_score *= 10
+
+        judge_score = max(
+            0.0,
+            min(100.0, judge_score)
+        )
+    except (TypeError, ValueError):
+        judge_score = None
+
+    # Calculate our application score.
+    #
+    # Preferred:
+    #   average of all four criteria.
+    #
+    # Fallback:
+    #   average of whatever valid criteria the judge returned.
+    #
+    # Final fallback:
+    #   normalized judge overall score.
+    if cleaned_criteria:
+        final_score = (
+            sum(cleaned_criteria.values())
+            / len(cleaned_criteria)
+        )
+    elif judge_score is not None:
+        final_score = judge_score
+    else:
+        final_score = 0.0
 
     feedback = str(
         data.get("feedback", "")

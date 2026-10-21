@@ -318,11 +318,11 @@ export default function Evaluations() {
 
   return (
     <div className="space-y-8 pb-12">
-      {/* Header */}
+      {/* Simplified page header */}
       <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-            Evaluation workspace
+            Evaluation lab
           </p>
 
           <h1 className="mt-2 font-serif text-4xl tracking-tight text-ink">
@@ -330,16 +330,15 @@ export default function Evaluations() {
           </h1>
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            Create repeatable test datasets, inspect evaluation
-            runs, and measure how prompt versions behave across
-            the same cases.
+            Run prompts against reusable test cases, review the results,
+            and compare how different versions perform.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <Link
             to="/dashboard/evaluations/run"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-control bg-ink px-4 py-2.5 text-sm font-medium text-white transition-standard hover:opacity-90"
+            className="inline-flex items-center justify-center gap-2 rounded-control bg-ink px-4 py-2.5 text-sm font-medium text-white transition-standard hover:opacity-90"
           >
             <svg
               width="14"
@@ -348,6 +347,7 @@ export default function Evaluations() {
               viewBox="0 0 24 24"
               stroke="currentColor"
               strokeWidth="2"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -355,18 +355,14 @@ export default function Evaluations() {
                 d="M5 3l14 9-14 9V3z"
               />
             </svg>
-
             Run Evaluation
           </Link>
 
           <button
             type="button"
-            onClick={() =>
-              setShowCreateDataset(
-                (value) => !value
-              )
-            }
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink transition-standard hover:border-ink"
+            onClick={() => setShowCreateDataset((value) => !value)}
+            aria-expanded={showCreateDataset}
+            className="inline-flex items-center justify-center gap-2 rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink transition-standard hover:border-ink"
           >
             <svg
               width="14"
@@ -375,13 +371,10 @@ export default function Evaluations() {
               viewBox="0 0 24 24"
               stroke="currentColor"
               strokeWidth="2"
+              aria-hidden="true"
             >
-              <path
-                strokeLinecap="round"
-                d="M12 5v14M5 12h14"
-              />
+              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
             </svg>
-
             New Dataset
           </button>
         </div>
@@ -477,8 +470,8 @@ export default function Evaluations() {
         </form>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* Compact summary */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-surface p-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
             Datasets
@@ -499,22 +492,81 @@ export default function Evaluations() {
 
         <div className="rounded-xl border border-border bg-surface p-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
-            Evaluation Runs
-          </p>
-          <p className="mt-2 font-serif text-3xl text-ink">
-            {stats.runs}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-border bg-surface p-4">
-          <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
-            Completed
+            Completed Runs
           </p>
           <p className="mt-2 font-serif text-3xl text-ink">
             {stats.completedRuns}
           </p>
         </div>
       </div>
+
+      {/* Secondary tools live here instead of competing with the main actions. */}
+      <details className="group rounded-xl border border-border bg-surface">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
+              Advanced analysis
+            </p>
+            <p className="mt-1 text-sm font-medium text-ink">
+              Compare versions and study consistency
+            </p>
+          </div>
+
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            className="shrink-0 text-muted transition-transform group-open:rotate-180"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+          </svg>
+        </summary>
+
+        <div className="grid gap-3 border-t border-border p-4 sm:grid-cols-3">
+          <Link
+            to="/dashboard/evaluations/compare"
+            className="rounded-lg border border-border bg-background p-4 transition-standard hover:border-ink"
+          >
+            <p className="text-sm font-medium text-ink">Compare Runs</p>
+            <p className="mt-1 text-xs leading-5 text-muted">
+              Inspect differences between two evaluations.
+            </p>
+            <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand">
+              Open comparison <span aria-hidden="true">→</span>
+            </span>
+          </Link>
+
+          <Link
+            to="/dashboard/evaluations/repeat"
+            className="rounded-lg border border-border bg-background p-4 transition-standard hover:border-ink"
+          >
+            <p className="text-sm font-medium text-ink">Repeatability Study</p>
+            <p className="mt-1 text-xs leading-5 text-muted">
+              Measure score stability across repeated trials.
+            </p>
+            <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand">
+              Open study <span aria-hidden="true">→</span>
+            </span>
+          </Link>
+
+          <Link
+            to="/dashboard/evaluations/performance"
+            className="rounded-lg border border-border bg-background p-4 transition-standard hover:border-ink"
+          >
+            <p className="text-sm font-medium text-ink">Version Performance</p>
+            <p className="mt-1 text-xs leading-5 text-muted">
+              Compare average scores across prompt versions.
+            </p>
+            <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand">
+              Open analysis <span aria-hidden="true">→</span>
+            </span>
+          </Link>
+        </div>
+      </details>
 
       {/* Main content */}
       <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
@@ -523,11 +575,11 @@ export default function Evaluations() {
           <div className="mb-3 flex items-center justify-between">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-                Test sets
+                Your test sets
               </p>
 
               <h2 className="mt-1 font-serif text-2xl text-ink">
-                Evaluation Datasets
+                Datasets
               </h2>
             </div>
           </div>
@@ -776,7 +828,7 @@ export default function Evaluations() {
             </p>
 
             <h2 className="mt-1 font-serif text-2xl text-ink">
-              Recent Evaluation Runs
+              Recent evaluations
             </h2>
           </div>
 

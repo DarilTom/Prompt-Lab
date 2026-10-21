@@ -21,6 +21,9 @@ import Analytics from "./pages/dashboard/Analytics";
 import Evaluations from "./pages/dashboard/Evaluations";
 import RunEvaluation from "./pages/dashboard/RunEvaluation";
 import EvaluationResult from "./pages/dashboard/EvaluationResult";
+import EvaluationCompare from "./pages/dashboard/EvaluationCompare";
+import RepeatEvaluation from "./pages/dashboard/RepeatEvaluation";
+import VersionPerformanceAnalysis from "./pages/dashboard/VersionPerformanceAnalysis";
 
 
 // Placeholder for future pages — swap out when built
@@ -56,6 +59,9 @@ function App() {
             <Route path="evaluations" element={<Evaluations />} />
             <Route path="evaluations/run" element={<RunEvaluation />} />
             <Route path="evaluations/runs/:id" element={<EvaluationResult />} />
+            <Route path= "evaluations/compare"element={<EvaluationCompare />} />
+            <Route path= "evaluations/repeat" element={<RepeatEvaluation />} /> 
+            <Route path="evaluations/performance"element={<VersionPerformanceAnalysis />}/>
             <Route path="executions" element={<Executions />} />
             <Route path="executions/:id" element={<ExecutionDetail />} />
             <Route path="comparisons" element={<Comparisons />} />
