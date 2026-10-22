@@ -3,7 +3,7 @@ import re
 from decimal import Decimal
 
 from apps.executions.models import Execution
-from apps.executions.services import run_ollama
+from apps.executions.services import compose_prompt, run_ollama
 from .models import EvaluationResult
 
 JUDGE_SYSTEM_PROMPT = """
@@ -290,9 +290,13 @@ def run_evaluation(evaluation_run):
         try:
             # Reuse the exact Ollama execution service
             # already used by the Execution Sandbox.
+            user_prompt = compose_prompt(
+                evaluation_run.prompt_version.content,
+                test_case.input_text,
+            )
             ollama_result = run_ollama(
                 model=evaluation_run.model,
-                user_prompt=test_case.input_text,
+                user_prompt=user_prompt,
                 system_prompt=evaluation_run.prompt_version.system_prompt,
             )
 

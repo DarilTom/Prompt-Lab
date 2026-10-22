@@ -358,6 +358,13 @@ export default function Evaluations() {
             Run Evaluation
           </Link>
 
+          <Link
+            to="/dashboard/evaluations/compare"
+            className="inline-flex items-center justify-center gap-2 rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink transition-standard hover:border-ink"
+          >
+            Compare Runs
+          </Link>
+
           <button
             type="button"
             onClick={() => setShowCreateDataset((value) => !value)}
@@ -499,74 +506,6 @@ export default function Evaluations() {
           </p>
         </div>
       </div>
-
-      {/* Secondary tools live here instead of competing with the main actions. */}
-      <details className="group rounded-xl border border-border bg-surface">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
-              Advanced analysis
-            </p>
-            <p className="mt-1 text-sm font-medium text-ink">
-              Compare versions and study consistency
-            </p>
-          </div>
-
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            className="shrink-0 text-muted transition-transform group-open:rotate-180"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
-          </svg>
-        </summary>
-
-        <div className="grid gap-3 border-t border-border p-4 sm:grid-cols-3">
-          <Link
-            to="/dashboard/evaluations/compare"
-            className="rounded-lg border border-border bg-background p-4 transition-standard hover:border-ink"
-          >
-            <p className="text-sm font-medium text-ink">Compare Runs</p>
-            <p className="mt-1 text-xs leading-5 text-muted">
-              Inspect differences between two evaluations.
-            </p>
-            <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand">
-              Open comparison <span aria-hidden="true">→</span>
-            </span>
-          </Link>
-
-          <Link
-            to="/dashboard/evaluations/repeat"
-            className="rounded-lg border border-border bg-background p-4 transition-standard hover:border-ink"
-          >
-            <p className="text-sm font-medium text-ink">Repeatability Study</p>
-            <p className="mt-1 text-xs leading-5 text-muted">
-              Measure score stability across repeated trials.
-            </p>
-            <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand">
-              Open study <span aria-hidden="true">→</span>
-            </span>
-          </Link>
-
-          <Link
-            to="/dashboard/evaluations/performance"
-            className="rounded-lg border border-border bg-background p-4 transition-standard hover:border-ink"
-          >
-            <p className="text-sm font-medium text-ink">Version Performance</p>
-            <p className="mt-1 text-xs leading-5 text-muted">
-              Compare average scores across prompt versions.
-            </p>
-            <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand">
-              Open analysis <span aria-hidden="true">→</span>
-            </span>
-          </Link>
-        </div>
-      </details>
 
       {/* Main content */}
       <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
@@ -822,38 +761,54 @@ export default function Evaluations() {
 
         {/* Recent runs */}
         <section>
-          <div className="mb-3">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-              Experiment history
-            </p>
+          <div className="mb-3 flex items-end justify-between">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+                Experiment history
+              </p>
 
-            <h2 className="mt-1 font-serif text-2xl text-ink">
-              Recent evaluations
-            </h2>
+              <h2 className="mt-1 font-serif text-2xl text-ink">
+                Recent evaluations
+              </h2>
+            </div>
+
+            {runs.length > 0 && (
+              <span className="font-mono text-xs text-muted">
+                {runs.length} run{runs.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-border bg-surface">
+          <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-subtle">
             {runs.length === 0 ? (
               <div className="p-6 text-center text-sm text-muted">
                 No evaluation runs yet.
               </div>
             ) : (
-              <div className="divide-y divide-border">
-                {runs.slice(0, 6).map((run) => (
-                  <div
+              <div className="max-h-[700px] overflow-y-auto divide-y divide-border">
+                {runs.map((run) => (
+                  <Link
                     key={run.id}
-                    className="p-4"
+                    to={`/dashboard/evaluations/runs/${run.id}`}
+                    className="group block p-4 transition-colors hover:bg-background/80 focus-visible:outline-none focus-visible:bg-background/80"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-ink">
-                          {run.prompt_title ||
-                            "Untitled prompt"}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-sm font-medium text-ink transition-colors group-hover:text-brand">
+                            {run.prompt_title ||
+                              "Untitled prompt"}
+                          </p>
+                          <span
+                            className="text-xs text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-brand"
+                            aria-hidden="true"
+                          >
+                            →
+                          </span>
+                        </div>
 
                         <p className="mt-1 font-mono text-[10px] text-muted">
-                          Run #{run.id} · v
-                          {run.version_number}
+                          Run #{run.id} · v{run.version_number}
                         </p>
                       </div>
 
@@ -868,28 +823,28 @@ export default function Evaluations() {
 
                     <div className="mt-4 grid grid-cols-3 gap-3">
                       <div>
-                        <p className="text-[10px] uppercase tracking-wide text-muted">
+                        <p className="text-[10px] uppercase tracking-wide text-muted font-mono">
                           Score
                         </p>
-                        <p className="mt-1 font-mono text-sm text-ink">
+                        <p className="mt-1 font-mono text-sm font-semibold text-ink">
                           {run.overall_score ?? "—"}
                         </p>
                       </div>
 
                       <div>
-                        <p className="text-[10px] uppercase tracking-wide text-muted">
+                        <p className="text-[10px] uppercase tracking-wide text-muted font-mono">
                           Passed
                         </p>
-                        <p className="mt-1 font-mono text-sm text-success">
-                          {run.passed_cases}
+                        <p className="mt-1 font-mono text-sm font-semibold text-success">
+                          {run.passed_cases}/{run.total_cases}
                         </p>
                       </div>
 
                       <div>
-                        <p className="text-[10px] uppercase tracking-wide text-muted">
+                        <p className="text-[10px] uppercase tracking-wide text-muted font-mono">
                           Duration
                         </p>
-                        <p className="mt-1 font-mono text-sm text-ink">
+                        <p className="mt-1 font-mono text-sm font-semibold text-ink">
                           {formatDuration(
                             run.total_duration
                           )}
@@ -902,11 +857,16 @@ export default function Evaluations() {
                         {run.dataset_name}
                       </span>
 
-                      <span className="font-mono text-[10px] text-muted">
-                        {formatDate(run.created_at)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-muted">
+                          {formatDate(run.created_at)}
+                        </span>
+                        <span className="text-xs font-semibold text-brand opacity-0 transition-opacity group-hover:opacity-100">
+                          View details →
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}

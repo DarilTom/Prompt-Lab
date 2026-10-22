@@ -98,12 +98,6 @@ const primaryNavAfterEval = [
     icon: icons.comparisons,
     match: (pathname) => pathname.startsWith('/dashboard/comparisons'),
   },
-  {
-    to: '/dashboard/analytics',
-    label: 'Analytics',
-    icon: icons.analytics,
-    match: (pathname) => pathname.startsWith('/dashboard/analytics'),
-  },
 ]
 
 const evaluationNav = [
@@ -120,16 +114,6 @@ const evaluationNav = [
   {
     to: '/dashboard/evaluations/compare',
     label: 'Compare Runs',
-    end: true,
-  },
-  {
-    to: '/dashboard/evaluations/repeat',
-    label: 'Repeatability Study',
-    end: true,
-  },
-  {
-    to: '/dashboard/evaluations/performance',
-    label: 'Version Performance',
     end: true,
   },
 ]

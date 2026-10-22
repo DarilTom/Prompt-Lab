@@ -25,7 +25,7 @@ class PromptListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         queryset = Prompt.objects.filter(
             owner=self.request.user
-        )
+        ).prefetch_related("versions")
 
         search = self.request.query_params.get("search")
         category = self.request.query_params.get("category")
@@ -111,7 +111,7 @@ class PromptDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = PromptSerializer
 
     def get_queryset(self):
-        return Prompt.objects.filter(owner=self.request.user)
+        return Prompt.objects.filter(owner=self.request.user).prefetch_related("versions")
 
 
 class PromptVersionListCreateView(generics.ListCreateAPIView):
@@ -160,6 +160,13 @@ class PromptImproveView(APIView):
 
     def post(self, request, *args, **kwargs):
         prompt_text = request.data.get("prompt_text", "")
+        if isinstance(prompt_text, (list, tuple)):
+            prompt_text = "\n".join(
+                str(item).strip()
+                for item in prompt_text
+                if item is not None and str(item).strip()
+            )
+
         if not isinstance(prompt_text, str) or not prompt_text.strip():
             return Response(
                 {"detail": "Please describe what you want the AI to accomplish."},
@@ -167,19 +174,48 @@ class PromptImproveView(APIView):
             )
 
         context = request.data.get("context", "")
+        if isinstance(context, (list, tuple)):
+            context = "\n".join(
+                str(c).strip()
+                for c in context
+                if c is not None and str(c).strip()
+            )
+        elif not isinstance(context, str):
+            context = str(context).strip() if context else ""
+
         tone = request.data.get("tone", "")
+        if isinstance(tone, (list, tuple)):
+            tone = ", ".join(
+                str(t).strip()
+                for t in tone
+                if t is not None and str(t).strip()
+            )
+        elif not isinstance(tone, str):
+            tone = str(tone).strip() if tone else ""
+
         output_format = request.data.get("output_format", "")
+        if isinstance(output_format, (list, tuple)):
+            output_format = ", ".join(
+                str(o).strip()
+                for o in output_format
+                if o is not None and str(o).strip()
+            )
+        elif not isinstance(output_format, str):
+            output_format = str(output_format).strip() if output_format else ""
+
         model = request.data.get("model", "gemma3:4b")
         if not model or not str(model).strip():
             model = "gemma3:4b"
+        else:
+            model = str(model).strip()
 
         try:
             result = generate_improved_prompt(
                 prompt_text=prompt_text.strip(),
-                context=str(context).strip() if context else "",
-                tone=str(tone).strip() if tone else "",
-                output_format=str(output_format).strip() if output_format else "",
-                model=str(model).strip(),
+                context=context.strip() if context else "",
+                tone=tone.strip() if tone else "",
+                output_format=output_format.strip() if output_format else "",
+                model=model,
             )
             return Response(result, status=status.HTTP_200_OK)
         except (ConnectionError, TimeoutError) as e:

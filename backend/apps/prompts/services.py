@@ -18,8 +18,8 @@ Apply these prompt engineering principles:
 
 You MUST respond with valid JSON in this exact structure:
 {
-  "improved_prompt": "The complete, ready-to-use improved prompt text",
-  "explanation": "A concise explanation (2-3 short bullet points or sentences) detailing the key improvements made, such as role framing, constraints added, or format requirements."
+  "improved_prompt": "The complete, ready-to-use improved prompt text as a single string",
+  "explanation": "A concise explanation as a string (2-3 short bullet points or sentences) detailing the key improvements made, such as role framing, constraints added, or format requirements."
 }
 
 Do NOT wrap the JSON in markdown code blocks. Output raw JSON only.
@@ -27,6 +27,8 @@ Do NOT wrap the JSON in markdown code blocks. Output raw JSON only.
 
 
 def _extract_json(text):
+    if not isinstance(text, str):
+        return None
     text = text.strip()
     try:
         return json.loads(text)
@@ -43,6 +45,67 @@ def _extract_json(text):
     return None
 
 
+def _format_prompt_text(value, default=""):
+    """
+    Safely converts a prompt value (which may be a string, a list of paragraphs,
+    or other types from LLM output) into a clean string.
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else default
+    if isinstance(value, (list, tuple)):
+        items = [str(item).strip() for item in value if item is not None and str(item).strip()]
+        return "\n\n".join(items) if items else default
+    cleaned = str(value).strip()
+    return cleaned if cleaned else default
+
+
+def _format_explanation(value, default=""):
+    """
+    Safely converts an explanation (which may be a string, a list of bullet points,
+    or a dictionary from LLM output) into a clean string formatted with bullet points.
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else default
+    if isinstance(value, (list, tuple)):
+        items = [str(item).strip() for item in value if item is not None and str(item).strip()]
+        if not items:
+            return default
+        formatted = []
+        for item in items:
+            if item.startswith(("-", "*", "•", "–")) or re.match(r"^\d+[\.\)]", item):
+                formatted.append(item)
+            else:
+                formatted.append(f"• {item}")
+        return "\n".join(formatted)
+    if isinstance(value, dict):
+        items = [f"• {k}: {v}" for k, v in value.items() if v]
+        return "\n".join(items) if items else default
+    cleaned = str(value).strip()
+    return cleaned if cleaned else default
+
+
+def _clean_input_field(value, default="", join_delimiter="\n"):
+    """
+    Safely converts an input field into a clean string.
+    If it is a list/tuple, joins non-empty items with join_delimiter.
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        items = [str(item).strip() for item in value if item is not None and str(item).strip()]
+        return join_delimiter.join(items) if items else default
+    cleaned = str(value).strip()
+    return cleaned if cleaned else default
+
+
 def generate_improved_prompt(
     *,
     prompt_text,
@@ -55,22 +118,28 @@ def generate_improved_prompt(
     Calls Ollama to improve a prompt based on user goals, optional context,
     tone, and desired output format.
     """
-    user_content = f"GOAL / TASK:\n{prompt_text.strip()}\n"
+    clean_prompt = _clean_input_field(prompt_text)
+    clean_context = _clean_input_field(context)
+    clean_tone = _clean_input_field(tone, join_delimiter=", ")
+    clean_output_format = _clean_input_field(output_format, join_delimiter=", ")
+    clean_model = str(model).strip() if model else "gemma3:4b"
 
-    if context and context.strip():
-        user_content += f"\nADDITIONAL CONTEXT:\n{context.strip()}\n"
+    user_content = f"GOAL / TASK:\n{clean_prompt}\n"
 
-    if tone and tone.strip():
-        user_content += f"\nDESIRED TONE:\n{tone.strip()}\n"
+    if clean_context:
+        user_content += f"\nADDITIONAL CONTEXT:\n{clean_context}\n"
 
-    if output_format and output_format.strip():
-        user_content += f"\nDESIRED OUTPUT FORMAT:\n{output_format.strip()}\n"
+    if clean_tone:
+        user_content += f"\nDESIRED TONE:\n{clean_tone}\n"
+
+    if clean_output_format:
+        user_content += f"\nDESIRED OUTPUT FORMAT:\n{clean_output_format}\n"
 
     user_content += "\nPlease generate an improved, production-ready version of this prompt."
 
     try:
         raw_result = run_ollama(
-            model=model,
+            model=clean_model,
             user_prompt=user_content,
             system_prompt=IMPROVER_SYSTEM_PROMPT,
         )
@@ -81,33 +150,44 @@ def generate_improved_prompt(
         )
     except requests.exceptions.Timeout:
         raise TimeoutError(
-            f"Ollama took too long to respond while improving the prompt with model '{model}'. "
+            f"Ollama took too long to respond while improving the prompt with model '{clean_model}'. "
             "Please try again."
         )
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"Ollama request failed: {str(e)}")
 
-    message_content = raw_result.get("message", {}).get("content", "").strip()
+    message_content = raw_result.get("message", {}).get("content", "")
+    if isinstance(message_content, list):
+        message_content = "\n".join(str(m) for m in message_content)
+    elif not isinstance(message_content, str):
+        message_content = str(message_content) if message_content else ""
+    message_content = message_content.strip()
 
     parsed = _extract_json(message_content)
 
-    if parsed and isinstance(parsed, dict) and "improved_prompt" in parsed:
-        improved_prompt = parsed.get("improved_prompt", "").strip()
-        explanation = parsed.get("explanation", "").strip()
-        if not explanation:
-            explanation = "Structured the prompt with clearer instructions, role framing, and constraints."
-        return {
-            "improved_prompt": improved_prompt,
-            "explanation": explanation,
-            "model": model,
-        }
+    if parsed:
+        if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+            parsed = parsed[0]
+
+        if isinstance(parsed, dict) and "improved_prompt" in parsed:
+            improved_prompt = _format_prompt_text(parsed.get("improved_prompt"))
+            explanation = _format_explanation(
+                parsed.get("explanation"),
+                default="Structured the prompt with clearer instructions, role framing, and constraints.",
+            )
+            if improved_prompt:
+                return {
+                    "improved_prompt": improved_prompt,
+                    "explanation": explanation,
+                    "model": clean_model,
+                }
 
     # Fallback if model didn't follow JSON format:
     cleaned_content = re.sub(r"^```[a-z]*\n?", "", message_content)
     cleaned_content = re.sub(r"\n?```$", "", cleaned_content).strip()
 
     return {
-        "improved_prompt": cleaned_content or prompt_text,
+        "improved_prompt": cleaned_content or clean_prompt,
         "explanation": "Refined the prompt for improved clarity and specificity.",
-        "model": model,
+        "model": clean_model,
     }

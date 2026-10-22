@@ -451,7 +451,8 @@ class EvaluationRunDetailView(APIView):
                 "dataset",
             )
             .prefetch_related(
-                "results__test_case"
+                "results__test_case",
+                "results__execution",
             ),
             pk=pk,
             owner=request.user,

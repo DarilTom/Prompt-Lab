@@ -6,8 +6,6 @@ import {
   getEvaluationRuns,
 } from "../../services/evaluationService";
 
-import RegressionAnalysis from "./RegressionAnalysis";
-
 function unwrapList(data) {
   if (Array.isArray(data)) {
     return data;
@@ -763,14 +761,6 @@ export default function EvaluationCompare() {
                     </p>
                   </div>
                 </div>
-              </div>
-
-              {/* Advanced Regression Analysis Component */}
-              <div>
-                <h4 className="text-sm font-semibold text-ink mb-3">
-                  Regression thresholds &amp; classification
-                </h4>
-                <RegressionAnalysis runA={runA} runB={runB} />
               </div>
             </div>
           </details>

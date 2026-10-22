@@ -8,7 +8,7 @@ from apps.prompts.models import PromptVersion
 
 from .models import Execution
 from .serializers import ExecutionSerializer
-from .services import run_ollama
+from .services import compose_prompt, run_ollama
 
 
 class ExecutionListCreateView(generics.ListCreateAPIView):
@@ -77,10 +77,15 @@ class ExecutionListCreateView(generics.ListCreateAPIView):
             status="running",
         )
 
+        user_prompt = compose_prompt(
+            prompt_version.content,
+            input_text,
+        )
+
         try:
             result = run_ollama(
                 model=model,
-                user_prompt=input_text,
+                user_prompt=user_prompt,
                 system_prompt=prompt_version.system_prompt,
             )
 

@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+
 const statusConfig = {
   production: {
     label: "PRODUCTION",
@@ -40,6 +42,8 @@ function formatUpdatedAt(value) {
 }
 
 export default function PromptCard({ prompt, onClick }) {
+  const navigate = useNavigate();
+
   const status =
     statusConfig[prompt.status] || statusConfig.draft;
 
@@ -166,11 +170,54 @@ export default function PromptCard({ prompt, onClick }) {
         </div>
       </div>
 
+      {/* Saved Versions Quick Links */}
+      {prompt.versions && prompt.versions.length > 0 && (
+        <div className="mt-4 border-t border-border/70 pt-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="font-mono text-[9px] font-medium uppercase tracking-[0.14em] text-muted">
+              Versions ({prompt.versions.length})
+            </span>
+            <span className="text-[10px] text-muted">
+              Click to view &amp; test
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {prompt.versions.map((ver) => {
+              const isLatest = ver.version_number === latestVersion?.version_number;
+              return (
+                <button
+                  key={ver.id}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    navigate(`/dashboard/prompts/${prompt.id}?version=${ver.version_number}`);
+                  }}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-semibold transition-colors ${
+                    isLatest
+                      ? "bg-ink text-white"
+                      : "border border-border bg-background text-muted hover:border-brand hover:text-brand"
+                  }`}
+                  title={`v${ver.version_number}${ver.change_summary ? `: ${ver.change_summary}` : ""}`}
+                >
+                  <span>v{ver.version_number}</span>
+                  {isLatest && (
+                    <span className="text-[9px] font-normal opacity-75">latest</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
 
         <span className="font-mono text-[11px] text-muted">
-          {versionLabel}
+          {prompt.versions && prompt.versions.length > 1
+            ? `${prompt.versions.length} versions`
+            : versionLabel}
         </span>
 
         <span className="flex items-center gap-1 text-xs font-semibold text-muted transition-all duration-200 group-hover:gap-2 group-hover:text-brand">

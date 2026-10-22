@@ -27,6 +27,7 @@ class PromptVersionSerializer(serializers.ModelSerializer):
 class PromptSerializer(serializers.ModelSerializer):
     owner = serializers.ReadOnlyField(source="owner.id")
     latest_version = serializers.SerializerMethodField()
+    versions = serializers.SerializerMethodField()
 
     class Meta:
         model = Prompt
@@ -38,6 +39,7 @@ class PromptSerializer(serializers.ModelSerializer):
             "status",
             "owner",
             "latest_version",
+            "versions",
             "created_at",
             "updated_at",
         ]
@@ -45,6 +47,7 @@ class PromptSerializer(serializers.ModelSerializer):
             "id",
             "owner",
             "latest_version",
+            "versions",
             "created_at",
             "updated_at",
         ]
@@ -56,6 +59,10 @@ class PromptSerializer(serializers.ModelSerializer):
             return None
 
         return PromptVersionSerializer(version).data
+
+    def get_versions(self, obj):
+        versions = obj.versions.order_by("-version_number")
+        return PromptVersionSerializer(versions, many=True).data
 
 
 class PromptCreateSerializer(serializers.ModelSerializer):

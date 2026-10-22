@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   getPrompt,
@@ -83,9 +83,11 @@ function calculateTokensPerSecond(evalCount, duration) {
 export default function PromptDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [prompt, setPrompt] = useState(null);
   const [versions, setVersions] = useState([]);
+  const [selectedVersionId, setSelectedVersionId] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [versionsLoading, setVersionsLoading] = useState(true);
@@ -96,6 +98,33 @@ export default function PromptDetail() {
   const [savingStatus, setSavingStatus] = useState(false);
 
   const [showNewVersion, setShowNewVersion] = useState(false);
+  const [shouldScrollToVersion, setShouldScrollToVersion] = useState(false);
+  const newVersionRef = useRef(null);
+
+  useEffect(() => {
+    if (shouldScrollToVersion && showNewVersion && newVersionRef.current) {
+      const frameId = requestAnimationFrame(() => {
+        newVersionRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+      setShouldScrollToVersion(false);
+      return () => cancelAnimationFrame(frameId);
+    }
+  }, [shouldScrollToVersion, showNewVersion]);
+
+  function handleOpenNewVersion() {
+    if (showNewVersion) {
+      newVersionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    } else {
+      setShowNewVersion(true);
+      setShouldScrollToVersion(true);
+    }
+  }
 
   const [versionContent, setVersionContent] = useState("");
   const [versionSystemPrompt, setVersionSystemPrompt] = useState("");
@@ -117,6 +146,73 @@ export default function PromptDetail() {
     loadPrompt();
     loadVersions();
   }, [id]);
+
+  // Synchronize selectedVersionId from URL search param or default to latest
+  useEffect(() => {
+    if (versions.length > 0) {
+      const versionNumParam = searchParams.get("version");
+      const versionIdParam = searchParams.get("versionId");
+
+      if (versionNumParam) {
+        const found = versions.find(
+          (v) => String(v.version_number) === String(versionNumParam)
+        );
+        if (found) {
+          setSelectedVersionId(found.id);
+          return;
+        }
+      }
+
+      if (versionIdParam) {
+        const found = versions.find(
+          (v) => String(v.id) === String(versionIdParam)
+        );
+        if (found) {
+          setSelectedVersionId(found.id);
+          return;
+        }
+      }
+
+      // Default to latest version if not already set or invalid
+      if (!selectedVersionId) {
+        const defaultVer = prompt?.latest_version
+          ? versions.find((v) => v.id === prompt.latest_version.id) || versions[0]
+          : versions[0];
+        if (defaultVer) {
+          setSelectedVersionId(defaultVer.id);
+        }
+      }
+    }
+  }, [versions, searchParams, prompt, selectedVersionId]);
+
+  const latestVersion = prompt?.latest_version;
+
+  const activeVersion = useMemo(() => {
+    if (selectedVersionId && versions.length > 0) {
+      const found = versions.find((v) => v.id === Number(selectedVersionId));
+      if (found) return found;
+    }
+    return latestVersion || (versions.length > 0 ? versions[0] : null);
+  }, [selectedVersionId, versions, latestVersion]);
+
+  function handleSelectVersion(targetVersion, shouldScrollToSandbox = false) {
+    if (!targetVersion) return;
+    setSelectedVersionId(targetVersion.id);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("version", String(targetVersion.version_number));
+      return next;
+    });
+
+    if (shouldScrollToSandbox) {
+      const el = document.getElementById("execution-sandbox");
+      if (el) {
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+      }
+    }
+  }
 
   useEffect(() => {
     if (
@@ -217,7 +313,7 @@ export default function PromptDetail() {
   async function handleRunExperiment(event) {
     event.preventDefault();
 
-    if (!latestVersion) {
+    if (!activeVersion) {
       setExecutionError(
         "This prompt does not have a version that can be executed."
       );
@@ -235,7 +331,7 @@ export default function PromptDetail() {
       setExecution(null);
 
       const result = await createExecution({
-        prompt_version: latestVersion.id,
+        prompt_version: activeVersion.id,
         model: selectedModel,
         input_text: executionInput.trim(),
       });
@@ -279,8 +375,6 @@ export default function PromptDetail() {
       </div>
     );
   }
-
-  const latestVersion = prompt.latest_version;
 
   const currentStatus =
     statusConfig[prompt.status] || statusConfig.draft;
@@ -354,49 +448,109 @@ export default function PromptDetail() {
         </div>
       )}
 
-      {/* Current Version */}
+      {/* Active Version Inspector */}
       <section className="rounded-card border border-border bg-surface shadow-subtle">
 
         <div className="flex flex-col gap-4 border-b border-border px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
 
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold">
-                Current Version
+                Prompt Version
               </h2>
 
-              <span className="rounded-pill bg-ink px-2.5 py-1 font-mono text-xs text-white">
-                {latestVersion
-                  ? `v${latestVersion.version_number}`
-                  : "No version"}
-              </span>
+              {activeVersion && (
+                <span
+                  className={`rounded-pill px-2.5 py-1 font-mono text-xs font-semibold ${
+                    latestVersion && activeVersion.id === latestVersion.id
+                      ? "bg-ink text-white"
+                      : "border border-amber-300 bg-amber-50 text-amber-900"
+                  }`}
+                >
+                  v{activeVersion.version_number}
+                  {latestVersion && activeVersion.id === latestVersion.id
+                    ? " · Latest"
+                    : " · Historical"}
+                </span>
+              )}
+
+              {/* Version Switcher */}
+              {versions.length > 1 && (
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                  <label htmlFor="version-inspector-select" className="sr-only">
+                    Select version to inspect
+                  </label>
+                  <select
+                    id="version-inspector-select"
+                    value={activeVersion?.id || ""}
+                    onChange={(event) => {
+                      const found = versions.find(
+                        (v) => v.id === Number(event.target.value)
+                      );
+                      if (found) handleSelectVersion(found);
+                    }}
+                    className="rounded-control border border-border bg-background px-2.5 py-1 font-mono text-xs font-medium text-ink outline-none focus:border-brand"
+                  >
+                    {versions.map((ver) => (
+                      <option key={ver.id} value={ver.id}>
+                        v{ver.version_number}{" "}
+                        {latestVersion && ver.id === latestVersion.id
+                          ? "(Latest)"
+                          : "(Historical)"}
+                        {ver.change_summary ? ` — ${ver.change_summary}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <p className="mt-1 text-sm text-muted">
-              Last updated{" "}
-              {formatDate(
-                latestVersion?.created_at || prompt.updated_at
+              {activeVersion ? (
+                <>
+                  Created {formatDate(activeVersion.created_at)}
+                  {activeVersion.change_summary && (
+                    <span className="ml-2 font-medium text-ink">
+                      · &ldquo;{activeVersion.change_summary}&rdquo;
+                    </span>
+                  )}
+                </>
+              ) : (
+                "No version available."
               )}
             </p>
           </div>
 
-          <button
-            onClick={() => setShowNewVersion((value) => !value)}
-            className="rounded-control bg-brand px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            + New Version
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            {activeVersion && (
+              <button
+                type="button"
+                onClick={() => handleSelectVersion(activeVersion, true)}
+                className="rounded-control border border-border bg-background px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+              >
+                Open in Sandbox ↓
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleOpenNewVersion}
+              className="rounded-control bg-brand px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              + New Version
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-6 p-6 lg:grid-cols-2">
 
           <div>
             <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
-              Prompt
+              Prompt Template (v{activeVersion?.version_number || "—"})
             </div>
 
             <pre className="min-h-64 whitespace-pre-wrap rounded-control border border-border bg-background p-5 font-mono text-sm leading-7 text-ink">
-              {latestVersion?.content ||
+              {activeVersion?.content ||
                 "No prompt content available."}
             </pre>
           </div>
@@ -407,7 +561,7 @@ export default function PromptDetail() {
             </div>
 
             <pre className="min-h-64 whitespace-pre-wrap rounded-control border border-border bg-background p-5 font-mono text-sm leading-7 text-ink">
-              {latestVersion?.system_prompt ||
+              {activeVersion?.system_prompt ||
                 "No system prompt defined."}
             </pre>
           </div>
@@ -422,32 +576,88 @@ export default function PromptDetail() {
       >
 
         <div className="border-b border-border px-6 py-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
             <div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <h2 className="text-lg font-semibold">
                   Execution Sandbox
                 </h2>
 
-                {latestVersion && (
-                  <span className="rounded-pill bg-background px-2.5 py-1 font-mono text-xs font-semibold text-muted">
-                    v{latestVersion.version_number}
+                {activeVersion && (
+                  <span
+                    className={`rounded-pill px-2.5 py-1 font-mono text-xs font-semibold ${
+                      latestVersion && activeVersion.id === latestVersion.id
+                        ? "bg-background text-muted"
+                        : "border border-amber-300 bg-amber-50 text-amber-900"
+                    }`}
+                  >
+                    Testing v{activeVersion.version_number}
+                    {latestVersion && activeVersion.id === latestVersion.id
+                      ? " (Latest)"
+                      : " (Historical)"}
                   </span>
                 )}
               </div>
 
               <p className="mt-1 text-sm text-muted">
-                Run this prompt against a local language model.
+                Run prompt version {activeVersion?.version_number || "—"} against a local language model.
               </p>
             </div>
 
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-              Local inference
-            </span>
+            {/* Version Switcher in Sandbox */}
+            {versions.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                  Version:
+                </span>
+                <select
+                  value={activeVersion?.id || ""}
+                  onChange={(event) => {
+                    const found = versions.find(
+                      (v) => v.id === Number(event.target.value)
+                    );
+                    if (found) handleSelectVersion(found);
+                  }}
+                  className="rounded-control border border-border bg-background px-3 py-1.5 font-mono text-xs font-medium text-ink outline-none focus:border-brand"
+                >
+                  {versions.map((ver) => (
+                    <option key={ver.id} value={ver.id}>
+                      v{ver.version_number}{" "}
+                      {latestVersion && ver.id === latestVersion.id
+                        ? "(Latest)"
+                        : "(Historical)"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
           </div>
         </div>
+
+        {/* Historical Version Notice Banner */}
+        {activeVersion &&
+          latestVersion &&
+          activeVersion.id !== latestVersion.id && (
+            <div className="flex flex-col gap-2 border-b border-amber-200 bg-amber-50/70 px-6 py-3 text-xs text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold uppercase tracking-wider text-amber-800">
+                  Notice:
+                </span>
+                <span>
+                  You are testing historical <strong>Version {activeVersion.version_number}</strong>. The execution run will be saved and recorded against this version.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSelectVersion(latestVersion)}
+                className="self-start text-xs font-semibold text-amber-900 underline hover:text-amber-950 sm:self-auto"
+              >
+                Switch to latest (v{latestVersion.version_number})
+              </button>
+            </div>
+          )}
 
         <form onSubmit={handleRunExperiment} className="p-6">
 
@@ -503,13 +713,13 @@ export default function PromptDetail() {
                   type="submit"
                   disabled={
                     executionLoading ||
-                    !latestVersion
+                    !activeVersion
                   }
                   className="rounded-control bg-brand px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {executionLoading
                     ? "Running..."
-                    : "Run Prompt →"}
+                    : `Run Prompt (v${activeVersion?.version_number ?? ""}) →`}
                 </button>
 
               </div>
@@ -624,7 +834,10 @@ export default function PromptDetail() {
 
       {/* New Version */}
       {showNewVersion && (
-        <section className="rounded-card border border-brand/30 bg-surface shadow-subtle">
+        <section
+          ref={newVersionRef}
+          className="scroll-mt-8 rounded-card border border-brand/30 bg-surface shadow-subtle"
+        >
 
           <div className="border-b border-border px-6 py-5">
             <h2 className="text-lg font-semibold">
@@ -747,54 +960,87 @@ export default function PromptDetail() {
         ) : (
           <div className="space-y-3">
 
-            {versions.map((version) => (
-              <article
-                key={version.id}
-                className="rounded-card border border-border bg-surface p-5 shadow-subtle transition-shadow hover:shadow-raised"
-              >
+            {versions.map((version) => {
+              const isSelected = activeVersion && version.id === activeVersion.id;
+              const isLatest =
+                latestVersion && version.version_number === latestVersion.version_number;
 
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              return (
+                <article
+                  key={version.id}
+                  className={`rounded-card border bg-surface p-5 shadow-subtle transition-all hover:shadow-raised ${
+                    isSelected ? "border-brand ring-2 ring-brand/15" : "border-border"
+                  }`}
+                >
 
-                  <div>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
 
-                    <div className="flex items-center gap-3">
+                    <div>
 
-                      <span className="rounded-pill bg-background px-2.5 py-1 font-mono text-xs font-semibold">
-                        v{version.version_number}
-                      </span>
+                      <div className="flex items-center gap-3">
 
-                      {latestVersion &&
-                        version.version_number ===
-                          latestVersion.version_number && (
+                        <span className="rounded-pill bg-background px-2.5 py-1 font-mono text-xs font-semibold">
+                          v{version.version_number}
+                        </span>
+
+                        {isLatest && (
                           <span className="rounded-pill bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">
-                            Current
+                            Latest
                           </span>
                         )}
 
+                        {isSelected && (
+                          <span className="rounded-pill bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand">
+                            Selected
+                          </span>
+                        )}
+
+                      </div>
+
+                      {version.change_summary && (
+                        <p className="mt-3 text-sm font-medium">
+                          {version.change_summary}
+                        </p>
+                      )}
+
+                      <p className="mt-1 text-xs text-muted">
+                        Created {formatDate(version.created_at)}
+                      </p>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleSelectVersion(version, false);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          className="rounded-control border border-border bg-background px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-brand hover:text-brand"
+                        >
+                          View Details ↑
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSelectVersion(version, true)}
+                          className="rounded-control border border-brand bg-brand/5 px-3 py-1.5 text-xs font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+                        >
+                          Open in Sandbox ↓
+                        </button>
+                      </div>
+
                     </div>
 
-                    {version.change_summary && (
-                      <p className="mt-3 text-sm font-medium">
-                        {version.change_summary}
+                    <div className="max-w-2xl">
+                      <p className="line-clamp-3 whitespace-pre-wrap font-mono text-xs leading-6 text-muted">
+                        {version.content}
                       </p>
-                    )}
-
-                    <p className="mt-1 text-xs text-muted">
-                      Created {formatDate(version.created_at)}
-                    </p>
+                    </div>
 
                   </div>
 
-                  <div className="max-w-2xl">
-                    <p className="line-clamp-3 whitespace-pre-wrap font-mono text-xs leading-6 text-muted">
-                      {version.content}
-                    </p>
-                  </div>
-
-                </div>
-
-              </article>
-            ))}
+                </article>
+              );
+            })}
 
           </div>
         )}
