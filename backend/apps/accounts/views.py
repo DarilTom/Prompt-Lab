@@ -180,6 +180,9 @@ class MeView(APIView):
                 "id": user.id,
                 "name": user.first_name,
                 "email": user.email,
+                "is_staff": user.is_staff,
+                "is_superuser": user.is_superuser,
+                "is_admin": bool(user.is_staff or user.is_superuser),
             },
             status=status.HTTP_200_OK,
         )

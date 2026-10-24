@@ -1,3 +1,4 @@
+import re
 import requests
 from django.shortcuts import get_object_or_404
 
@@ -11,6 +12,7 @@ from apps.prompts.models import PromptVersion
 from .models import Execution
 from .serializers import ExecutionSerializer
 from .services import (
+    compare_and_recommend,
     compose_prompt,
     get_installed_models,
     run_ollama,
@@ -147,16 +149,30 @@ class ExecutionListCreateView(generics.ListCreateAPIView):
             input_text,
         )
 
+        run_kwargs = {}
+        if "qwen" in model.lower():
+            run_kwargs["think"] = False
+
         try:
             result = run_ollama(
                 model=model,
                 user_prompt=user_prompt,
                 system_prompt=prompt_version.system_prompt,
+                **run_kwargs,
             )
 
             message = result.get("message", {})
+            raw_content = message.get("content", "")
+            if isinstance(raw_content, list):
+                raw_content = "\n".join(str(m) for m in raw_content)
+            elif not isinstance(raw_content, str):
+                raw_content = str(raw_content) if raw_content else ""
 
-            execution.output_text = message.get("content", "")
+            # Clean any internal reasoning think blocks if present
+            cleaned_content = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL)
+            cleaned_content = re.sub(r"^.*?</think>", "", cleaned_content, flags=re.DOTALL).strip()
+
+            execution.output_text = cleaned_content if cleaned_content else raw_content
             execution.status = "completed"
 
             execution.total_duration = result.get(
@@ -177,9 +193,50 @@ class ExecutionListCreateView(generics.ListCreateAPIView):
 
             execution.save()
 
+            # Lifecycle: Draft -> Testing on first successful execution
+            prompt = prompt_version.prompt
+            if prompt.transition_to_testing_if_draft():
+                execution.prompt.refresh_from_db()
+
             return Response(
                 self.get_serializer(execution).data,
                 status=status.HTTP_201_CREATED,
+            )
+
+        except requests.exceptions.Timeout as exc:
+            execution.status = "failed"
+            error_msg = (
+                f"Ollama took too long to respond while executing the prompt with model '{model}'. "
+                "Please try again."
+            )
+            execution.error_message = error_msg
+            execution.save(update_fields=["status", "error_message"])
+
+            return Response(
+                {
+                    "detail": error_msg,
+                    "error": str(exc),
+                    "execution_id": execution.id,
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+
+        except requests.exceptions.ConnectionError as exc:
+            execution.status = "failed"
+            error_msg = (
+                "Unable to connect to Ollama at http://localhost:11434. "
+                "Please ensure the Ollama service is running locally."
+            )
+            execution.error_message = error_msg
+            execution.save(update_fields=["status", "error_message"])
+
+            return Response(
+                {
+                    "detail": error_msg,
+                    "error": str(exc),
+                    "execution_id": execution.id,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         except Exception as exc:
@@ -203,7 +260,7 @@ class ExecutionListCreateView(generics.ListCreateAPIView):
             )
 
 
-class ExecutionDetailView(generics.RetrieveAPIView):
+class ExecutionDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = ExecutionSerializer
     permission_classes = [IsAuthenticated]
 
@@ -213,3 +270,159 @@ class ExecutionDetailView(generics.RetrieveAPIView):
             .filter(owner=self.request.user)
             .select_related("prompt", "prompt_version")
         )
+
+    def destroy(self, request, *args, **kwargs):
+        execution_id = kwargs.get("pk")
+
+        # Explicit authorization check: verify user owns this execution if it exists
+        if (
+            Execution.objects.filter(pk=execution_id)
+            .exclude(owner=request.user)
+            .exists()
+        ):
+            return Response(
+                {
+                    "detail": "You do not have permission to delete this execution."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        execution = self.get_object()
+
+        # Safeguard: prevent deletion if referenced by evaluation records
+        if execution.evaluation_results.exists():
+            return Response(
+                {
+                    "detail": (
+                        "This execution cannot be deleted because it is referenced "
+                        "by evaluation run results in Evaluation Lab."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.perform_destroy(execution)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExecutionCompareRecommendView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        execution_a_id = request.data.get("execution_a_id")
+        execution_b_id = request.data.get("execution_b_id")
+        judge_model = request.data.get("judge_model")
+
+        if not execution_a_id or not execution_b_id:
+            return Response(
+                {"detail": "Both execution_a_id and execution_b_id are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if str(execution_a_id) == str(execution_b_id):
+            return Response(
+                {
+                    "detail": "Cannot compare an execution with itself. Select two different executions."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            exec_a = (
+                Execution.objects.select_related("prompt", "prompt_version")
+                .filter(owner=request.user)
+                .get(id=execution_a_id)
+            )
+            exec_b = (
+                Execution.objects.select_related("prompt", "prompt_version")
+                .filter(owner=request.user)
+                .get(id=execution_b_id)
+            )
+        except Execution.DoesNotExist:
+            return Response(
+                {
+                    "detail": "One or both executions were not found or do not belong to you."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if (
+            not exec_a.output_text
+            or not exec_a.output_text.strip()
+            or exec_a.status == "failed"
+        ):
+            return Response(
+                {
+                    "detail": (
+                        f"Execution RUN-{exec_a.id:03d} has no usable output or has failed. "
+                        "Both executions must have completed successfully."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if (
+            not exec_b.output_text
+            or not exec_b.output_text.strip()
+            or exec_b.status == "failed"
+        ):
+            return Response(
+                {
+                    "detail": (
+                        f"Execution RUN-{exec_b.id:03d} has no usable output or has failed. "
+                        "Both executions must have completed successfully."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if judge_model:
+            is_installed, err_msg = validate_model_installed(judge_model)
+            if not is_installed:
+                return Response(
+                    {
+                        "detail": (
+                            err_msg
+                            or f"Judging model '{judge_model}' is not installed in local Ollama."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            comparison_result = compare_and_recommend(
+                execution_a=exec_a,
+                execution_b=exec_b,
+                judge_model=judge_model,
+            )
+            return Response(comparison_result, status=status.HTTP_200_OK)
+        except requests.exceptions.Timeout as exc:
+            return Response(
+                {
+                    "detail": (
+                        f"Ollama timed out while evaluating the responses with model '{judge_model or 'evaluator'}'. "
+                        "Please try again or select a faster model."
+                    ),
+                    "error": str(exc),
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except requests.exceptions.ConnectionError as exc:
+            return Response(
+                {
+                    "detail": (
+                        "Unable to connect to Ollama service at http://localhost:11434. "
+                        "Please ensure the Ollama service is running locally."
+                    ),
+                    "error": str(exc),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as exc:
+            return Response(
+                {
+                    "detail": "Failed to analyze and recommend prompt comparison.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )

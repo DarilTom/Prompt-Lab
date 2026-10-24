@@ -6,7 +6,10 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import AdminRoute from "./components/auth/AdminRoute";
 import PromptDetail from "./pages/dashboard/PromptDetail";
+import AdminDashboard from "./pages/dashboard/AdminDashboard";
+import AdminUsers from "./pages/dashboard/AdminUsers";
 
 
 // Dashboard shell + pages
@@ -31,9 +34,8 @@ import VersionPerformanceAnalysis from "./pages/dashboard/VersionPerformanceAnal
 function ComingSoon({ label }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
-      <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted">{label}</p>
-      <p className="mt-2 font-serif text-2xl text-ink">Coming soon</p>
-      <p className="mt-1 text-sm text-muted">This section is under construction.</p>
+      <h1 className="font-serif text-3xl text-ink">{label}</h1>
+      <p className="mt-1 text-sm text-muted">This section is under construction. Coming soon.</p>
     </div>
   );
 }
@@ -70,6 +72,12 @@ function App() {
             <Route path="comparisons" element={<Comparisons />} />
             <Route path="analytics"element={<Analytics />}/>
             <Route path="settings" element={<ComingSoon label="Settings" />} />
+
+            {/* Admin only */}
+            <Route element={<AdminRoute />}>
+              <Route path="admin" element={<AdminDashboard />} />
+              <Route path="admin/users" element={<AdminUsers />} />
+            </Route>
           </Route>
         </Route>
 

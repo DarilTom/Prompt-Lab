@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    ExecutionCompareRecommendView,
     ExecutionDetailView,
     ExecutionListCreateView,
     OllamaModelListView,
@@ -12,6 +13,11 @@ urlpatterns = [
         "",
         ExecutionListCreateView.as_view(),
         name="execution-list-create",
+    ),
+    path(
+        "compare-recommend/",
+        ExecutionCompareRecommendView.as_view(),
+        name="execution-compare-recommend",
     ),
     path(
         "models/",

@@ -329,11 +329,7 @@ export default function RunEvaluation() {
         </Link>
 
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-            Evaluation runner
-          </p>
-
-          <h1 className="mt-2 font-serif text-4xl tracking-tight text-ink">
+          <h1 className="font-serif text-4xl tracking-tight text-ink">
             Run a prompt against a test set.
           </h1>
 
@@ -664,11 +660,16 @@ export default function RunEvaluation() {
                   Evaluation #{result.id}
                 </h2>
 
-                <p className="mt-2 text-sm text-muted">
-                  {result.prompt_title} · v
-                  {result.version_number} ·{" "}
-                  {result.dataset_name}
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
+                  <span>
+                    {result.prompt_title} · v{result.version_number} · {result.dataset_name}
+                  </span>
+                  {result.prompt_status && (
+                    <span className="rounded-full bg-brand/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-brand font-semibold">
+                      Prompt: {result.prompt_status}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <span

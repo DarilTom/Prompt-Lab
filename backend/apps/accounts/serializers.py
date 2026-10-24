@@ -99,3 +99,32 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
             "refresh": str(refresh),
             "access": str(refresh.access_token),
         }
+
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="first_name", read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "name",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+            "date_joined",
+            "last_login",
+        ]
+        read_only_fields = [
+            "id",
+            "username",
+            "email",
+            "name",
+            "is_staff",
+            "is_superuser",
+            "date_joined",
+            "last_login",
+        ]

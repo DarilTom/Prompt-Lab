@@ -5,6 +5,9 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.evaluations.models import EvaluationDataset, TestCase as EvalTestCase
+from apps.executions.models import Execution
+from .models import Prompt, PromptVersion
 from .services import generate_improved_prompt
 
 User = get_user_model()
@@ -288,3 +291,291 @@ class PromptImproveAPITests(TestCase):
         self.assertEqual(response.data["model"], "mistral:7b")
         mock_run_ollama.assert_called_once()
         self.assertEqual(mock_run_ollama.call_args.kwargs["model"], "mistral:7b")
+
+
+class PromptCreationAndStatusTests(TestCase):
+    """
+    Tests verifying that prompt creation automatically assigns Draft status
+    when no status is specified, while preserving status updates and filters.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="testauthor",
+            email="author@example.com",
+            password="AuthorPassword123!",
+        )
+        self.client.force_authenticate(user=self.user)
+        self.list_create_url = reverse("prompt-list-create")
+
+    def test_create_prompt_without_status_defaults_to_draft(self):
+        payload = {
+            "title": "Automated Draft Test",
+            "description": "Testing default status",
+            "category": "engineering",
+            "content": "You are a helpful assistant.",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "draft")
+
+        prompt = Prompt.objects.get(id=response.data["id"])
+        self.assertEqual(prompt.status, Prompt.Status.DRAFT)
+
+    def test_create_prompt_with_explicit_status(self):
+        payload = {
+            "title": "Explicit Testing Prompt",
+            "description": "Testing explicit status assignment",
+            "category": "content",
+            "status": "testing",
+            "content": "Write marketing copy.",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "testing")
+
+        prompt = Prompt.objects.get(id=response.data["id"])
+        self.assertEqual(prompt.status, Prompt.Status.TESTING)
+
+    def test_filter_prompts_by_status(self):
+        Prompt.objects.create(
+            owner=self.user,
+            title="Draft Prompt",
+            status=Prompt.Status.DRAFT,
+        )
+        Prompt.objects.create(
+            owner=self.user,
+            title="Production Prompt",
+            status=Prompt.Status.PRODUCTION,
+        )
+
+        response = self.client.get(f"{self.list_create_url}?status=draft")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(all(p["status"] == "draft" for p in response.data))
+        self.assertEqual(len(response.data), 1)
+
+        response_prod = self.client.get(f"{self.list_create_url}?status=production")
+        self.assertEqual(response_prod.status_code, status.HTTP_200_OK)
+        self.assertTrue(all(p["status"] == "production" for p in response_prod.data))
+        self.assertEqual(len(response_prod.data), 1)
+
+    def test_view_or_edit_draft_without_executing_remains_draft(self):
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Initial Title",
+            status=Prompt.Status.DRAFT,
+        )
+        detail_url = reverse("prompt-detail", kwargs={"pk": prompt.id})
+
+        # Viewing leaves it as draft
+        view_res = self.client.get(detail_url)
+        self.assertEqual(view_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(view_res.data["status"], "draft")
+
+        # Editing title / description leaves it as draft
+        edit_res = self.client.patch(detail_url, {"title": "Updated Title"}, format="json")
+        self.assertEqual(edit_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(edit_res.data["status"], "draft")
+        prompt.refresh_from_db()
+        self.assertEqual(prompt.status, Prompt.Status.DRAFT)
+
+    def test_untested_draft_cannot_be_promoted_directly_to_production(self):
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Draft Prompt",
+            status=Prompt.Status.DRAFT,
+        )
+        detail_url = reverse("prompt-detail", kwargs={"pk": prompt.id})
+
+        # Attempt to mark Draft directly as Production
+        res = self.client.patch(detail_url, {"status": "production"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Draft", str(res.data))
+
+    @patch("apps.executions.services.get_installed_models")
+    @patch("apps.executions.views.run_ollama")
+    def test_execution_transitions_draft_to_testing(self, mock_run_ollama, mock_models):
+        mock_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        mock_run_ollama.return_value = {
+            "message": {"content": "Execution output"},
+            "total_duration": 1000,
+        }
+
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Draft to Test",
+            status=Prompt.Status.DRAFT,
+        )
+        version = PromptVersion.objects.create(
+            prompt=prompt,
+            version_number=1,
+            content="Hello {{name}}",
+            created_by=self.user,
+        )
+
+        exec_url = reverse("execution-list-create")
+        res = self.client.post(
+            exec_url,
+            {
+                "prompt_version": version.id,
+                "model": "gemma3:4b",
+                "input_text": "Amal",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["prompt_status"], "testing")
+
+        prompt.refresh_from_db()
+        self.assertEqual(prompt.status, Prompt.Status.TESTING)
+
+    @patch("apps.executions.services.get_installed_models")
+    @patch("apps.executions.views.run_ollama")
+    def test_failed_execution_keeps_prompt_in_draft(self, mock_run_ollama, mock_models):
+        mock_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        mock_run_ollama.side_effect = Exception("Ollama connection timed out")
+
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Draft to Fail",
+            status=Prompt.Status.DRAFT,
+        )
+        version = PromptVersion.objects.create(
+            prompt=prompt,
+            version_number=1,
+            content="Hello {{name}}",
+            created_by=self.user,
+        )
+
+        exec_url = reverse("execution-list-create")
+        res = self.client.post(
+            exec_url,
+            {
+                "prompt_version": version.id,
+                "model": "gemma3:4b",
+                "input_text": "Amal",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_502_BAD_GATEWAY)
+
+        prompt.refresh_from_db()
+        self.assertEqual(prompt.status, Prompt.Status.DRAFT)
+
+    @patch("apps.executions.services.get_installed_models")
+    @patch("apps.evaluations.views.run_evaluation")
+    def test_evaluation_run_transitions_draft_to_testing(self, mock_eval, mock_models):
+        mock_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        mock_eval.return_value = False  # no error
+
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Draft for Evaluation",
+            status=Prompt.Status.DRAFT,
+        )
+        version = PromptVersion.objects.create(
+            prompt=prompt,
+            version_number=1,
+            content="Hello {{name}}",
+            created_by=self.user,
+        )
+        dataset = EvaluationDataset.objects.create(
+            owner=self.user,
+            name="Test Dataset",
+        )
+        EvalTestCase.objects.create(
+            dataset=dataset,
+            name="Case 1",
+            input_text="Test input",
+        )
+
+        eval_run_url = reverse("evaluation-run-list-create")
+        res = self.client.post(
+            eval_run_url,
+            {
+                "prompt_version": version.id,
+                "dataset": dataset.id,
+                "model": "gemma3:4b",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["prompt_status"], "testing")
+
+        prompt.refresh_from_db()
+        self.assertEqual(prompt.status, Prompt.Status.TESTING)
+
+    def test_new_version_of_production_prompt_returns_to_testing(self):
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Production Prompt",
+            status=Prompt.Status.PRODUCTION,
+        )
+        PromptVersion.objects.create(
+            prompt=prompt,
+            version_number=1,
+            content="Version 1",
+            created_by=self.user,
+        )
+
+        versions_url = reverse("prompt-version-list-create", kwargs={"prompt_id": prompt.id})
+        res = self.client.post(
+            versions_url,
+            {"content": "Version 2 with updates"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        prompt.refresh_from_db()
+        self.assertEqual(prompt.status, Prompt.Status.TESTING)
+
+    def test_testing_prompt_can_be_promoted_to_production(self):
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Tested Prompt",
+            status=Prompt.Status.TESTING,
+        )
+        detail_url = reverse("prompt-detail", kwargs={"pk": prompt.id})
+
+        res = self.client.patch(detail_url, {"status": "production"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["status"], "production")
+
+        prompt.refresh_from_db()
+        self.assertEqual(prompt.status, Prompt.Status.PRODUCTION)
+
+    def test_archiving_and_restoring_prompt(self):
+        prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Tested Prompt",
+            status=Prompt.Status.TESTING,
+        )
+        detail_url = reverse("prompt-detail", kwargs={"pk": prompt.id})
+
+        # Archive
+        res_arch = self.client.patch(detail_url, {"status": "archived"}, format="json")
+        self.assertEqual(res_arch.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_arch.data["status"], "archived")
+
+        # Restore to Testing
+        res_rest = self.client.patch(detail_url, {"status": "testing"}, format="json")
+        self.assertEqual(res_rest.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_rest.data["status"], "testing")
+
+    def test_user_cannot_update_another_users_prompt_status(self):
+        other_user = User.objects.create_user(
+            username="otheruser",
+            email="other@example.com",
+            password="OtherPassword123!",
+        )
+        other_prompt = Prompt.objects.create(
+            owner=other_user,
+            title="Other Prompt",
+            status=Prompt.Status.TESTING,
+        )
+        detail_url = reverse("prompt-detail", kwargs={"pk": other_prompt.id})
+
+        # Attempt to modify other user's prompt
+        res = self.client.patch(detail_url, {"status": "production"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)

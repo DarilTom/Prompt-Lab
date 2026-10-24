@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useAuth } from "../../context/AuthContext";
 import { getPrompts } from "../../services/promptService";
 import { getExecutions } from "../../services/executionService";
 
@@ -52,7 +51,6 @@ function StatCard({ label, value, description, className = "" }) {
 }
 
 export default function Overview() {
-  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [prompts, setPrompts] = useState([]);
@@ -62,34 +60,36 @@ export default function Overview() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadOverview();
-  }, []);
+    let isCancelled = false;
 
-  async function loadOverview() {
-    try {
-      setLoading(true);
-      setError("");
+    async function load() {
+      try {
+        const [promptData, executionData] = await Promise.all([
+          getPrompts(),
+          getExecutions(),
+        ]);
 
-      const [promptData, executionData] = await Promise.all([
-        getPrompts(),
-        getExecutions(),
-      ]);
-
-      setPrompts(
-        Array.isArray(promptData) ? promptData : []
-      );
-
-      setExecutions(
-        Array.isArray(executionData) ? executionData : []
-      );
-    } catch (err) {
-      setError(
-        err.message || "Failed to load dashboard data."
-      );
-    } finally {
-      setLoading(false);
+        if (!isCancelled) {
+          setPrompts(Array.isArray(promptData) ? promptData : []);
+          setExecutions(Array.isArray(executionData) ? executionData : []);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setError(err.message || "Failed to load dashboard data.");
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
     }
-  }
+
+    load();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   const stats = useMemo(() => {
     const activePrompts = prompts.filter(
@@ -202,13 +202,9 @@ export default function Overview() {
 
       {/* Page header */}
       <div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
-          Experiment workspace
-        </p>
-
-        <h2 className="mt-1 font-serif text-3xl text-ink">
+        <h1 className="font-serif text-3xl text-ink">
           Your workspace
-        </h2>
+        </h1>
 
         <p className="mt-1 text-sm text-muted">
           A summary of your prompt library, experiment executions, and lab performance.

@@ -41,20 +41,51 @@ async function requestNewAccessToken() {
 
 export async function apiRequest(endpoint, options = {}, retry = true) {
   const accessToken = getAccessToken();
+  const { timeout, ...fetchOptions } = options;
 
   const headers = {
     "Content-Type": "application/json",
-    ...(options.headers || {}),
+    ...(fetchOptions.headers || {}),
   };
 
   if (accessToken && !headers.Authorization) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let controller = null;
+  let timerId = null;
+
+  if (timeout && !fetchOptions.signal) {
+    controller = new AbortController();
+    fetchOptions.signal = controller.signal;
+    timerId = setTimeout(() => {
+      controller.abort(
+        new Error(
+          `Request timed out after ${Math.round(timeout / 1000)} seconds.`
+        )
+      );
+    }, timeout);
+  }
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...fetchOptions,
+      headers,
+    });
+  } catch (err) {
+    if (err.name === "AbortError" && controller) {
+      throw new Error(
+        `Request timed out after ${Math.round(timeout / 1000)} seconds.`,
+        { cause: err }
+      );
+    }
+    throw err;
+  } finally {
+    if (timerId) {
+      clearTimeout(timerId);
+    }
+  }
 
   if (response.status === 401 && retry) {
     const newAccessToken = await requestNewAccessToken();
@@ -69,7 +100,7 @@ export async function apiRequest(endpoint, options = {}, retry = true) {
       {
         ...options,
         headers: {
-          ...(options.headers || {}),
+          ...(fetchOptions.headers || {}),
           Authorization: `Bearer ${newAccessToken}`,
         },
       },
@@ -86,6 +117,7 @@ export async function apiRequest(endpoint, options = {}, retry = true) {
   if (!response.ok) {
     const error = new Error(
       data?.detail ||
+        data?.error ||
         data?.email?.[0] ||
         data?.password?.[0] ||
         data?.password_confirm?.[0] ||

@@ -14,6 +14,11 @@ class ExecutionSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    prompt_status = serializers.CharField(
+        source="prompt.status",
+        read_only=True,
+    )
+
     class Meta:
         model = Execution
         fields = [
@@ -21,6 +26,7 @@ class ExecutionSerializer(serializers.ModelSerializer):
             "prompt",
             "prompt_version",
             "prompt_title",
+            "prompt_status",
             "version_number",
             "model",
             "input_text",
@@ -39,6 +45,7 @@ class ExecutionSerializer(serializers.ModelSerializer):
             "owner",
             "prompt",
             "prompt_title",
+            "prompt_status",
             "version_number",
             "output_text",
             "status",

@@ -173,11 +173,7 @@ export default function Analytics() {
 
       {/* Header */}
       <div>
-        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
-          Analytics
-        </div>
-
-        <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="font-serif text-4xl leading-tight">
               Experiment Analytics

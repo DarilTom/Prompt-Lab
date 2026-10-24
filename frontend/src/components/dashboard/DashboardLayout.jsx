@@ -2,64 +2,163 @@ import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import DashboardHeader from './DashboardHeader'
 import { PromptImproverProvider } from '../../context/PromptImproverContext'
+import { ExecutionProvider } from '../../context/ExecutionContext'
 
-const ROUTE_TITLES = {
-  '/dashboard': 'Prompt Improver',
-  '/dashboard/': 'Prompt Improver',
-  '/dashboard/prompts/improve': 'Prompt Improver',
-  '/dashboard/overview': 'Overview',
-  '/dashboard/prompts': 'Prompt Library',
-  '/dashboard/prompts/new': 'New Prompt',
-  '/dashboard/evaluations': 'Evaluation Lab',
-  '/dashboard/evaluations/run': 'Run Evaluation',
-  '/dashboard/evaluations/compare': 'Compare Runs',
-  '/dashboard/evaluations/repeat': 'Repeatability Study',
-  '/dashboard/evaluations/performance': 'Version Performance',
-  '/dashboard/executions': 'Execution History',
-  '/dashboard/comparisons': 'Response Comparison',
-  '/dashboard/analytics': 'Analytics',
-  '/dashboard/settings': 'Settings',
-}
+function useBreadcrumbs(pathname) {
+  const path = pathname.replace(/\/+$/, '') || '/dashboard'
 
-// Derive a human-readable title from the current pathname
-function usePageTitle() {
-  const { pathname } = useLocation()
-
-  if (ROUTE_TITLES[pathname]) {
-    return ROUTE_TITLES[pathname]
+  if (path === '/dashboard' || path === '/dashboard/prompts/improve') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Prompt Improver' },
+    ]
   }
 
-  if (pathname.startsWith('/dashboard/prompts/')) {
-    return 'Prompt Detail'
+  if (path === '/dashboard/overview') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Overview' },
+    ]
   }
 
-  if (pathname.startsWith('/dashboard/executions/')) {
-    return 'Execution Detail'
+  if (path === '/dashboard/prompts') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Prompt Library' },
+    ]
   }
 
-  if (pathname.startsWith('/dashboard/evaluations/runs/')) {
-    return 'Evaluation Result'
+  if (path === '/dashboard/prompts/new') {
+    return [
+      { label: 'Prompt Library', to: '/dashboard/prompts' },
+      { label: 'New Prompt' },
+    ]
   }
 
-  const segment = pathname.split('/').filter(Boolean).pop()
-  if (!segment) return 'Prompt Improver'
-  return segment.charAt(0).toUpperCase() + segment.slice(1)
+  if (path.startsWith('/dashboard/prompts/')) {
+    return [
+      { label: 'Prompt Library', to: '/dashboard/prompts' },
+      { label: 'Prompt Detail' },
+    ]
+  }
+
+  if (path === '/dashboard/executions') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Execution History' },
+    ]
+  }
+
+  if (path.startsWith('/dashboard/executions/')) {
+    return [
+      { label: 'Execution History', to: '/dashboard/executions' },
+      { label: 'Execution Detail' },
+    ]
+  }
+
+  if (path === '/dashboard/comparisons') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Response Comparison' },
+    ]
+  }
+
+  if (path === '/dashboard/analytics') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Analytics' },
+    ]
+  }
+
+  if (path === '/dashboard/evaluations') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Evaluation Lab' },
+    ]
+  }
+
+  if (path === '/dashboard/evaluations/run') {
+    return [
+      { label: 'Evaluation Lab', to: '/dashboard/evaluations' },
+      { label: 'Run Evaluation' },
+    ]
+  }
+
+  if (path === '/dashboard/evaluations/compare') {
+    return [
+      { label: 'Evaluation Lab', to: '/dashboard/evaluations' },
+      { label: 'Compare Runs' },
+    ]
+  }
+
+  if (path.startsWith('/dashboard/evaluations/runs/')) {
+    return [
+      { label: 'Evaluation Lab', to: '/dashboard/evaluations' },
+      { label: 'Evaluation Result' },
+    ]
+  }
+
+  if (path === '/dashboard/evaluations/repeat') {
+    return [
+      { label: 'Evaluation Lab', to: '/dashboard/evaluations' },
+      { label: 'Repeatability Study' },
+    ]
+  }
+
+  if (path === '/dashboard/evaluations/performance') {
+    return [
+      { label: 'Evaluation Lab', to: '/dashboard/evaluations' },
+      { label: 'Version Performance' },
+    ]
+  }
+
+  if (path === '/dashboard/settings') {
+    return [
+      { label: 'Workspace' },
+      { label: 'Settings' },
+    ]
+  }
+
+  if (path === '/dashboard/admin') {
+    return [
+      { label: 'Administration' },
+      { label: 'Overview' },
+    ]
+  }
+
+  if (path === '/dashboard/admin/users') {
+    return [
+      { label: 'Administration', to: '/dashboard/admin' },
+      { label: 'Users' },
+    ]
+  }
+
+  const segments = path.split('/').filter(Boolean)
+  const last = segments[segments.length - 1] || 'Dashboard'
+  const formatted = last.charAt(0).toUpperCase() + last.slice(1).replace(/-/g, ' ')
+  return [
+    { label: 'Workspace' },
+    { label: formatted },
+  ]
 }
 
 export default function DashboardLayout() {
-  const title = usePageTitle()
+  const { pathname } = useLocation()
+  const breadcrumbs = useBreadcrumbs(pathname)
 
   return (
     <PromptImproverProvider>
-      <div className="flex h-dvh overflow-hidden bg-background">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <DashboardHeader title={title} />
-          <main className="flex-1 overflow-y-auto p-6">
-            <Outlet />
-          </main>
+      <ExecutionProvider>
+        <div className="flex h-dvh overflow-hidden bg-background">
+          <Sidebar />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <DashboardHeader breadcrumbs={breadcrumbs} />
+            <main className="flex-1 overflow-y-auto p-6">
+              <Outlet />
+            </main>
+          </div>
         </div>
-      </div>
+      </ExecutionProvider>
     </PromptImproverProvider>
   )
 }

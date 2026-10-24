@@ -6,7 +6,6 @@ const INITIAL_FORM = {
   title: "",
   description: "",
   category: "engineering",
-  status: "draft",
   content: "",
   system_prompt: "",
 };
@@ -47,6 +46,7 @@ export default function NewPrompt() {
     try {
       await createPrompt({
         ...formData,
+        status: "draft",
 
         // The backend expects these fields when creating
         // the initial PromptVersion.
@@ -66,13 +66,9 @@ export default function NewPrompt() {
     <div className="mx-auto max-w-4xl space-y-8 pb-12">
       {/* Header */}
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-          Prompt Library
-        </p>
-
-        <h2 className="mt-1 font-serif text-3xl text-ink">
+        <h1 className="font-serif text-3xl text-ink">
           New Prompt
-        </h2>
+        </h1>
 
         <p className="mt-1.5 max-w-2xl text-sm text-muted">
           Create the first version of a prompt experiment.
@@ -132,53 +128,30 @@ export default function NewPrompt() {
               />
             </div>
 
-            {/* Category + Status */}
-            <div className="grid gap-5 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="category"
-                  className="mb-2 block text-sm font-medium text-ink"
-                >
-                  Category
-                </label>
+            {/* Category */}
+            <div>
+              <label
+                htmlFor="category"
+                className="mb-2 block text-sm font-medium text-ink"
+              >
+                Category
+              </label>
 
-                <select
-                  id="category"
-                  name="category"
-                  value={formData.category}
-                  onChange={handleChange}
-                  className="w-full cursor-pointer rounded-control border border-border bg-background px-4 py-3 text-sm text-ink outline-none transition-standard focus:border-brand focus:ring-2 focus:ring-brand/10"
-                >
-                  <option value="content">Content</option>
-                  <option value="ecommerce">E-commerce</option>
-                  <option value="engineering">Engineering</option>
-                  <option value="legal">Legal</option>
-                  <option value="productivity">Productivity</option>
-                  <option value="research">Research</option>
-                  <option value="support">Support</option>
-                </select>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="status"
-                  className="mb-2 block text-sm font-medium text-ink"
-                >
-                  Status
-                </label>
-
-                <select
-                  id="status"
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full cursor-pointer rounded-control border border-border bg-background px-4 py-3 text-sm text-ink outline-none transition-standard focus:border-brand focus:ring-2 focus:ring-brand/10"
-                >
-                  <option value="draft">Draft</option>
-                  <option value="testing">Testing</option>
-                  <option value="production">Production</option>
-                </select>
-              </div>
+              <select
+                id="category"
+                name="category"
+                value={formData.category}
+                onChange={handleChange}
+                className="w-full max-w-sm cursor-pointer rounded-control border border-border bg-background px-4 py-3 text-sm text-ink outline-none transition-standard focus:border-brand focus:ring-2 focus:ring-brand/10"
+              >
+                <option value="content">Content</option>
+                <option value="ecommerce">E-commerce</option>
+                <option value="engineering">Engineering</option>
+                <option value="legal">Legal</option>
+                <option value="productivity">Productivity</option>
+                <option value="research">Research</option>
+                <option value="support">Support</option>
+              </select>
             </div>
           </div>
         </section>

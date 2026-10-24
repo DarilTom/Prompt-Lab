@@ -153,6 +153,11 @@ class EvaluationRunSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    prompt_status = serializers.CharField(
+        source="prompt.status",
+        read_only=True,
+    )
+
     dataset_name = serializers.CharField(
         source="dataset.name",
         read_only=True,
@@ -171,6 +176,7 @@ class EvaluationRunSerializer(serializers.ModelSerializer):
             "prompt",
             "prompt_version",
             "prompt_title",
+            "prompt_status",
             "version_number",
             "dataset",
             "dataset_name",

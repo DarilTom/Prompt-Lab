@@ -11,6 +11,8 @@ export async function createExecution({
 }) {
   return apiRequest("/executions/", {
     method: "POST",
+    // 620s ensures client timeout gives backend 600s to complete without aborting prematurely
+    timeout: 620000,
     body: JSON.stringify({
       prompt_version,
       model,
@@ -35,4 +37,26 @@ export async function getExecutions({ promptId = "" } = {}) {
 
 export async function getExecution(executionId) {
   return apiRequest(`/executions/${executionId}/`);
+}
+
+export async function deleteExecution(executionId) {
+  return apiRequest(`/executions/${executionId}/`, {
+    method: "DELETE",
+  });
+}
+
+export async function compareAndRecommendExecutions({
+  execution_a_id,
+  execution_b_id,
+  judge_model,
+}) {
+  return apiRequest("/executions/compare-recommend/", {
+    method: "POST",
+    timeout: 300000,
+    body: JSON.stringify({
+      execution_a_id,
+      execution_b_id,
+      judge_model: judge_model || undefined,
+    }),
+  });
 }

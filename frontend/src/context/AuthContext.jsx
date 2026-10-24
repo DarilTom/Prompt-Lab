@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState } from "react";
 import {
   getCurrentUser,
@@ -45,6 +46,7 @@ export function AuthProvider({ children }) {
     setUser,
     loading,
     isAuthenticated: Boolean(user),
+    isAdmin: Boolean(user?.is_staff || user?.is_superuser || user?.is_admin),
     logout,
   };
 

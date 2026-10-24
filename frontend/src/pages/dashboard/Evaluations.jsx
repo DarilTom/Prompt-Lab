@@ -321,11 +321,7 @@ export default function Evaluations() {
       {/* Simplified page header */}
       <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-            Evaluation lab
-          </p>
-
-          <h1 className="mt-2 font-serif text-4xl tracking-tight text-ink">
+          <h1 className="font-serif text-4xl tracking-tight text-ink">
             Test your prompts systematically.
           </h1>
 

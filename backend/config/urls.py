@@ -12,6 +12,7 @@ from apps.executions.views import OllamaModelListView
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/auth/", include("apps.accounts.urls")),
+    path("api/admin/", include("apps.accounts.admin_urls")),
     path("api/prompts/", include("apps.prompts.urls")),
     path("api/executions/", include("apps.executions.urls")),
     path("api/evaluations/", include("apps.evaluations.urls")),

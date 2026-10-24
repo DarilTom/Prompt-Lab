@@ -55,6 +55,28 @@ class Prompt(models.Model):
     def __str__(self):
         return self.title
 
+    def transition_to_testing_if_draft(self):
+        """
+        Transitions prompt from DRAFT to TESTING upon first successful execution
+        or inclusion in an evaluation run. Returns True if status changed.
+        """
+        if self.status == self.Status.DRAFT:
+            self.status = self.Status.TESTING
+            self.save(update_fields=["status", "updated_at"])
+            return True
+        return False
+
+    def transition_to_testing_from_production(self):
+        """
+        Transitions prompt from PRODUCTION to TESTING when a new version is created,
+        because the new version requires validation. Returns True if status changed.
+        """
+        if self.status == self.Status.PRODUCTION:
+            self.status = self.Status.TESTING
+            self.save(update_fields=["status", "updated_at"])
+            return True
+        return False
+
 
 class PromptVersion(models.Model):
     prompt = models.ForeignKey(

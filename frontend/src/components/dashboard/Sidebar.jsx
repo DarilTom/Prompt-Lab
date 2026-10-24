@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
@@ -62,6 +62,19 @@ const icons = {
   signout: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    </svg>
+  ),
+
+  admin: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l8 4v6c0 5.25-3.5 10-8 11-4.5-1-8-5.75-8-11V6l8-4z" />
+    </svg>
+  ),
+
+  users: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m10-7.13a4 4 0 11-8 0 4 4 0 018 0z" />
+      <circle cx="9" cy="7" r="4" />
     </svg>
   ),
 }
@@ -136,21 +149,14 @@ const subInactiveClass =
   'text-muted hover:bg-border/60 hover:text-ink'
 
 export default function Sidebar() {
-  const { user, logout } = useAuth()
+  const { user, isAdmin, logout } = useAuth()
   const location = useLocation()
 
   const isEvaluationActive =
     location.pathname.startsWith('/dashboard/evaluations')
 
-  const [isEvaluationOpen, setIsEvaluationOpen] =
-    useState(isEvaluationActive)
-
-  // Automatically expand the group when visiting an evaluation page.
-  useEffect(() => {
-    if (isEvaluationActive) {
-      setIsEvaluationOpen(true)
-    }
-  }, [isEvaluationActive])
+  const [manualEvaluationOpen, setManualEvaluationOpen] = useState(null)
+  const isEvaluationOpen = manualEvaluationOpen ?? isEvaluationActive
 
   return (
     <aside className="flex h-full w-56 flex-col border-r border-border bg-surface">
@@ -213,7 +219,7 @@ export default function Sidebar() {
               <button
                 type="button"
                 onClick={() =>
-                  setIsEvaluationOpen((open) => !open)
+                  setManualEvaluationOpen(!isEvaluationOpen)
                 }
                 aria-expanded={isEvaluationOpen}
                 aria-controls="evaluation-lab-menu"
@@ -290,6 +296,41 @@ export default function Sidebar() {
               </li>
             )
           })}
+
+          {isAdmin && (
+            <li className="pt-3">
+              <div className="border-t border-border pt-3">
+                <p className="mb-2 px-3 font-mono text-[10px] uppercase tracking-[0.18em] text-brand font-semibold">
+                  Administration
+                </p>
+                <ul className="space-y-0.5" role="list">
+                  <li>
+                    <NavLink
+                      to="/dashboard/admin"
+                      end
+                      className={({ isActive }) =>
+                        `${linkBase} ${isActive ? activeClass : inactiveClass}`
+                      }
+                    >
+                      {icons.admin}
+                      <span>Admin Overview</span>
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink
+                      to="/dashboard/admin/users"
+                      className={({ isActive }) =>
+                        `${linkBase} ${isActive ? activeClass : inactiveClass}`
+                      }
+                    >
+                      {icons.users}
+                      <span>User Management</span>
+                    </NavLink>
+                  </li>
+                </ul>
+              </div>
+            </li>
+          )}
         </ul>
       </nav>
 

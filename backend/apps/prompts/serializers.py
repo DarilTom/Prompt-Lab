@@ -64,6 +64,30 @@ class PromptSerializer(serializers.ModelSerializer):
         versions = obj.versions.order_by("-version_number")
         return PromptVersionSerializer(versions, many=True).data
 
+    def validate_status(self, new_status):
+        if not self.instance:
+            return new_status
+
+        current_status = self.instance.status
+        if current_status == new_status:
+            return new_status
+
+        # Prevent promoting un-tested Draft prompts directly to Production
+        if current_status == Prompt.Status.DRAFT and new_status == Prompt.Status.PRODUCTION:
+            raise serializers.ValidationError(
+                "Prompts in Draft status cannot be marked as Production directly. "
+                "Execute or evaluate the prompt first to move it to Testing."
+            )
+
+        # Prevent jumping directly from Archived to Production
+        if current_status == Prompt.Status.ARCHIVED and new_status == Prompt.Status.PRODUCTION:
+            raise serializers.ValidationError(
+                "Archived prompts cannot be marked as Production directly. "
+                "Restore the prompt to Testing first."
+            )
+
+        return new_status
+
 
 class PromptCreateSerializer(serializers.ModelSerializer):
     content = serializers.CharField(write_only=True)
@@ -81,10 +105,16 @@ class PromptCreateSerializer(serializers.ModelSerializer):
         required=False,
         allow_blank=True,
     )
+    status = serializers.ChoiceField(
+        choices=Prompt.Status.choices,
+        default=Prompt.Status.DRAFT,
+        required=False,
+    )
 
     class Meta:
         model = Prompt
         fields = [
+            "id",
             "title",
             "description",
             "category",
@@ -94,6 +124,7 @@ class PromptCreateSerializer(serializers.ModelSerializer):
             "variables",
             "change_summary",
         ]
+        read_only_fields = ["id"]
 
     def create(self, validated_data):
         content = validated_data.pop("content")
@@ -102,6 +133,10 @@ class PromptCreateSerializer(serializers.ModelSerializer):
         change_summary = validated_data.pop("change_summary", "")
 
         request = self.context["request"]
+
+        # Ensure status defaults to Draft when not specified or empty
+        if not validated_data.get("status"):
+            validated_data["status"] = Prompt.Status.DRAFT
 
         prompt = Prompt.objects.create(
             owner=request.user,

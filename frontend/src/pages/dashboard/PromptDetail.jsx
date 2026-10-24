@@ -8,7 +8,8 @@ import {
   createPromptVersion,
 } from "../../services/promptService";
 
-import { createExecution } from "../../services/executionService";
+import { useExecution } from "../../context/ExecutionContext";
+import { deleteExecution } from "../../services/executionService";
 import ModelSelector from "../../components/dashboard/ModelSelector";
 import { useInstalledModels } from "../../hooks/useInstalledModels";
 
@@ -91,6 +92,7 @@ export default function PromptDetail() {
 
   const [status, setStatus] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
+  const [lifecycleNotice, setLifecycleNotice] = useState("");
 
   const [showNewVersion, setShowNewVersion] = useState(false);
   const [shouldScrollToVersion, setShouldScrollToVersion] = useState(false);
@@ -144,11 +146,78 @@ export default function PromptDetail() {
       ? userModel
       : defaultModel;
 
-  const [executionInput, setExecutionInput] = useState("");
+  const {
+    getExecutionState,
+    runExecution,
+    getPromptInputText,
+    setPromptInputText,
+    clearShouldScroll,
+    clearExecution,
+  } = useExecution();
 
-  const [execution, setExecution] = useState(null);
-  const [executionLoading, setExecutionLoading] = useState(false);
-  const [executionError, setExecutionError] = useState("");
+  const [copiedResponse, setCopiedResponse] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingExecution, setDeletingExecution] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  const executionState = getExecutionState(id);
+  const execution = executionState?.result || null;
+  const executionLoading = Boolean(executionState?.loading);
+
+  const [localExecutionError, setLocalExecutionError] = useState("");
+  const executionError = localExecutionError || executionState?.error || "";
+
+  const executionInput = getPromptInputText(id);
+
+  const responseRef = useRef(null);
+
+  // Issue 2: Smoothly scroll to the rendered response section after execution completes
+  useEffect(() => {
+    if (
+      executionState?.shouldScrollResponse &&
+      executionState?.result &&
+      responseRef.current
+    ) {
+      const timer = setTimeout(() => {
+        responseRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        clearShouldScroll(id);
+      }, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    executionState?.shouldScrollResponse,
+    executionState?.result,
+    clearShouldScroll,
+    id,
+  ]);
+
+  // Synchronize draft -> testing transition if execution finishes while on or returning to this page
+  useEffect(() => {
+    let cancelled = false;
+    if (
+      prompt?.status === "draft" &&
+      executionState?.status === "completed"
+    ) {
+      (async () => {
+        try {
+          const fresh = await getPrompt(id);
+          if (!cancelled && fresh) {
+            setPrompt(fresh);
+            setStatus(fresh.status);
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [id, prompt?.status, executionState?.status]);
 
   useEffect(() => {
     loadPrompt();
@@ -265,12 +334,11 @@ export default function PromptDetail() {
     }
   }
 
-  async function handleStatusChange(event) {
-    const newStatus = event.target.value;
-
+  async function handleUpdateLifecycleStatus(newStatus) {
     try {
       setSavingStatus(true);
       setError("");
+      setLifecycleNotice("");
 
       const updated = await updatePrompt(id, {
         status: newStatus,
@@ -278,8 +346,16 @@ export default function PromptDetail() {
 
       setPrompt(updated);
       setStatus(updated.status);
+
+      if (newStatus === "production") {
+        setLifecycleNotice("Prompt successfully marked as Production.");
+      } else if (newStatus === "archived") {
+        setLifecycleNotice("Prompt has been archived.");
+      } else if (newStatus === "testing") {
+        setLifecycleNotice("Prompt moved to Testing.");
+      }
     } catch (err) {
-      setError(err.message || "Failed to update status.");
+      setError(err.message || "Failed to update prompt status.");
     } finally {
       setSavingStatus(false);
     }
@@ -309,8 +385,15 @@ export default function PromptDetail() {
 
       setShowNewVersion(false);
 
+      const hadProductionStatus = prompt?.status === "production";
       await loadPrompt();
       await loadVersions();
+
+      if (hadProductionStatus) {
+        setLifecycleNotice(
+          "New version created — prompt automatically moved from Production back to Testing for validation."
+        );
+      }
     } catch (err) {
       setError(err.message || "Failed to create new version.");
     } finally {
@@ -318,44 +401,100 @@ export default function PromptDetail() {
     }
   }
 
+  function handleCopyResponse() {
+    if (!execution?.output_text) return;
+    setCopyError("");
+
+    if (!navigator.clipboard?.writeText) {
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = execution.output_text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+        setCopiedResponse(true);
+        setTimeout(() => setCopiedResponse(false), 2000);
+      } catch {
+        setCopyError("Failed to copy response to clipboard.");
+        setTimeout(() => setCopyError(""), 3000);
+      }
+      return;
+    }
+
+    navigator.clipboard
+      .writeText(execution.output_text)
+      .then(() => {
+        setCopiedResponse(true);
+        setTimeout(() => setCopiedResponse(false), 2000);
+      })
+      .catch((err) => {
+        console.error("Failed to copy:", err);
+        setCopyError("Failed to copy response to clipboard.");
+        setTimeout(() => setCopyError(""), 3000);
+      });
+  }
+
+  async function handleConfirmDeleteExecution() {
+    if (!execution?.id) return;
+    try {
+      setDeletingExecution(true);
+      setDeleteError("");
+      await deleteExecution(execution.id);
+      clearExecution(id);
+      setShowDeleteConfirm(false);
+      setLifecycleNotice(`Execution #${execution.id} was deleted from history.`);
+    } catch (err) {
+      console.error("Failed to delete execution:", err);
+      setDeleteError(err.message || "Failed to delete execution.");
+    } finally {
+      setDeletingExecution(false);
+    }
+  }
+
   async function handleRunExperiment(event) {
     event.preventDefault();
+    setLocalExecutionError("");
 
     if (!activeVersion) {
-      setExecutionError(
+      setLocalExecutionError(
         "This prompt does not have a version that can be executed."
       );
       return;
     }
 
     if (!selectedModel) {
-      setExecutionError("Please select an installed Ollama model to execute.");
+      setLocalExecutionError("Please select an installed Ollama model to execute.");
       return;
     }
 
-    if (!executionInput.trim()) {
-      setExecutionError("Please enter something to test.");
+    const trimmedInput = executionInput.trim();
+    if (!trimmedInput) {
+      setLocalExecutionError("Please enter something to test.");
       return;
     }
 
-    try {
-      setExecutionLoading(true);
-      setExecutionError("");
-      setExecution(null);
+    const outcome = await runExecution({
+      promptId: id,
+      promptTitle: prompt?.title || `Prompt #${id}`,
+      versionId: activeVersion.id,
+      versionNumber: activeVersion.version_number,
+      model: selectedModel,
+      inputText: trimmedInput,
+    });
 
-      const result = await createExecution({
-        prompt_version: activeVersion.id,
-        model: selectedModel,
-        input_text: executionInput.trim(),
-      });
-
-      setExecution(result);
-    } catch (err) {
-      setExecutionError(
-        err.message || "Failed to execute the prompt."
-      );
-    } finally {
-      setExecutionLoading(false);
+    if (outcome?.success && outcome.result) {
+      const result = outcome.result;
+      if (
+        prompt?.status === "draft" &&
+        (result.prompt_status === "testing" || result.status === "completed")
+      ) {
+        setPrompt((prev) => ({ ...prev, status: "testing" }));
+        setStatus("testing");
+        setLifecycleNotice(
+          "Prompt automatically transitioned from Draft to Testing after successful execution."
+        );
+      }
     }
   }
 
@@ -431,28 +570,94 @@ export default function PromptDetail() {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
-
-            <select
-              value={status}
-              onChange={handleStatusChange}
-              disabled={savingStatus}
-              className="rounded-control border border-border bg-surface px-3 py-2.5 text-sm font-medium text-ink outline-none focus:border-brand"
-            >
-              <option value="draft">Draft</option>
-              <option value="testing">Testing</option>
-              <option value="production">Production</option>
-              <option value="archived">Archived</option>
-            </select>
-
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Status Badge */}
             <span
               className={`rounded-pill border px-3 py-1.5 text-xs font-semibold ${currentStatus.className}`}
             >
               {currentStatus.label}
             </span>
+
+            {/* Lifecycle Action: Promote to Production when in Testing */}
+            {status === "testing" && (
+              <button
+                type="button"
+                disabled={savingStatus}
+                onClick={() => handleUpdateLifecycleStatus("production")}
+                className="inline-flex items-center gap-1.5 rounded-control bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-subtle hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                title="Mark this tested prompt as ready for Production"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                {savingStatus ? "Saving..." : "Mark as Production"}
+              </button>
+            )}
+
+            {/* Lifecycle Action: Demote from Production to Testing if manual re-test desired */}
+            {status === "production" && (
+              <button
+                type="button"
+                disabled={savingStatus}
+                onClick={() => handleUpdateLifecycleStatus("testing")}
+                className="inline-flex items-center gap-1.5 rounded-control border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-brand hover:text-brand transition-colors disabled:opacity-50"
+                title="Return prompt to Testing status"
+              >
+                Move to Testing
+              </button>
+            )}
+
+            {/* Lifecycle Action: Archive / Restore */}
+            {status !== "archived" ? (
+              <button
+                type="button"
+                disabled={savingStatus}
+                onClick={() => handleUpdateLifecycleStatus("archived")}
+                className="rounded-control border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-muted hover:border-rose-400 hover:text-rose-600 transition-colors disabled:opacity-50"
+                title="Archive prompt"
+              >
+                Archive
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={savingStatus}
+                onClick={() => handleUpdateLifecycleStatus("testing")}
+                className="rounded-control border border-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-brand hover:bg-brand/5 transition-colors disabled:opacity-50"
+                title="Restore prompt to Testing"
+              >
+                Restore to Testing
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Lifecycle Transition Notice */}
+      {lifecycleNotice && (
+        <div className="flex items-center justify-between rounded-card border border-brand/30 bg-brand/5 p-3.5 text-xs font-medium text-brand">
+          <div className="flex items-center gap-2">
+            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{lifecycleNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLifecycleNotice("")}
+            className="text-muted hover:text-ink text-xs p-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -585,7 +790,7 @@ export default function PromptDetail() {
       {/* Execution Sandbox */}
       <section
         id="execution-sandbox"
-        className="rounded-card border border-border bg-surface shadow-subtle"
+        className="scroll-mt-20 rounded-card border border-border bg-surface shadow-subtle"
       >
 
         <div className="border-b border-border px-6 py-5">
@@ -698,12 +903,13 @@ export default function PromptDetail() {
 
               <textarea
                 value={executionInput}
-                onChange={(event) =>
-                  setExecutionInput(event.target.value)
-                }
+                onChange={(event) => {
+                  setPromptInputText(id, event.target.value);
+                }}
+                disabled={executionLoading}
                 rows={7}
                 placeholder="Enter the input you want to test against this prompt..."
-                className="w-full resize-y rounded-control border border-border bg-background px-4 py-3 font-mono text-sm leading-6 outline-none focus:border-brand"
+                className="w-full resize-y rounded-control border border-border bg-background px-4 py-3 font-mono text-sm leading-6 outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
               />
 
               <div className="mt-3 flex justify-end">
@@ -740,12 +946,12 @@ export default function PromptDetail() {
 
         {/* Execution Result */}
         {execution && (
-          <div className="border-t border-border">
+          <div ref={responseRef} className="border-t border-border scroll-mt-20">
 
             <div className="flex flex-col gap-3 border-b border-border px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
 
               <div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
 
                   <h3 className="text-base font-semibold">
                     Response
@@ -755,6 +961,14 @@ export default function PromptDetail() {
                     {execution.status}
                   </span>
 
+                  {/* Automatic persistence badge */}
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-0.5 font-mono text-[10px] font-medium text-emerald-800">
+                    <svg className="h-3 w-3 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Saved to Execution History
+                  </span>
+
                 </div>
 
                 <p className="mt-1 text-xs text-muted">
@@ -762,11 +976,105 @@ export default function PromptDetail() {
                 </p>
               </div>
 
-              <span className="font-mono text-[10px] text-muted">
-                Run #{execution.id}
-              </span>
+              {/* Response Actions Bar */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-1 font-mono text-[10px] text-muted">
+                  Run #{execution.id}
+                </span>
+
+                {/* Copy Response */}
+                <button
+                  type="button"
+                  onClick={handleCopyResponse}
+                  className="inline-flex items-center gap-1.5 rounded-control border border-border bg-background px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-neutral-100 hover:text-ink focus:outline-none focus:ring-1 focus:ring-brand"
+                  title="Copy generated response to clipboard"
+                >
+                  {copiedResponse ? (
+                    <>
+                      <svg className="h-3.5 w-3.5 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                      <span className="font-semibold text-emerald-700">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-3.5 w-3.5 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                      <span>Copy Response</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Delete Execution */}
+                {showDeleteConfirm ? (
+                  <div className="inline-flex items-center gap-2 rounded-control border border-rose-300 bg-rose-50/90 px-2.5 py-1 shadow-xs">
+                    <span className="text-xs font-medium text-rose-800">Delete this run?</span>
+                    <button
+                      type="button"
+                      disabled={deletingExecution}
+                      onClick={handleConfirmDeleteExecution}
+                      className="rounded bg-rose-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                    >
+                      {deletingExecution ? "Deleting..." : "Yes, delete"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deletingExecution}
+                      onClick={() => {
+                        setShowDeleteConfirm(false);
+                        setDeleteError("");
+                      }}
+                      className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs font-medium text-muted hover:text-ink disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeleteConfirm(true);
+                      setDeleteError("");
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-control border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                    title="Delete execution from history"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    <span>Delete Execution</span>
+                  </button>
+                )}
+              </div>
 
             </div>
+
+            {/* Copy error feedback if any */}
+            {copyError && (
+              <div className="mx-6 mt-4 rounded-control border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-800">
+                {copyError}
+              </div>
+            )}
+
+            {/* Delete error feedback if any */}
+            {deleteError && (
+              <div className="mx-6 mt-4 flex items-center justify-between rounded-control border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-800">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">Unable to delete:</span>
+                  <span>{deleteError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeleteError("")}
+                  className="text-xs font-semibold text-rose-700 hover:text-rose-900"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {/* Output */}
             <div className="p-6">

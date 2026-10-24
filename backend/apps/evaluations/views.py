@@ -394,6 +394,9 @@ class EvaluationRunListCreateView(APIView):
             started_at=timezone.now(),
         )
 
+        # Lifecycle: Draft -> Testing on inclusion in an evaluation run
+        prompt_version.prompt.transition_to_testing_if_draft()
+
         # ----------------------------------------------------
         # Execute evaluation
         # ----------------------------------------------------

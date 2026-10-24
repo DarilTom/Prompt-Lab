@@ -754,11 +754,7 @@ export default function VersionPerformanceAnalysis() {
         </Link>
 
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-            Experimental analysis
-          </p>
-
-          <h1 className="mt-2 font-serif text-4xl tracking-tight text-ink">
+          <h1 className="font-serif text-4xl tracking-tight text-ink">
             Did the prompt actually improve?
           </h1>
 

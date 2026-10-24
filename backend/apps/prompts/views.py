@@ -155,6 +155,9 @@ class PromptVersionListCreateView(generics.ListCreateAPIView):
             created_by=self.request.user,
         )
 
+        # Lifecycle: Production -> Testing when new version is created
+        prompt.transition_to_testing_from_production()
+
 
 class PromptImproveView(APIView):
     permission_classes = [IsAuthenticated]

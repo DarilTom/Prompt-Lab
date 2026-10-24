@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import PromptCard from "../../components/dashboard/PromptCard";
 import { getPrompts } from "../../services/promptService";
@@ -146,13 +146,9 @@ export default function Prompts() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
-            Prompt Library
-          </p>
-
-          <h2 className="mt-1 font-serif text-3xl text-ink">
+          <h1 className="font-serif text-3xl text-ink">
             Experiment Archive
-          </h2>
+          </h1>
 
           <p className="mt-1.5 max-w-lg text-sm text-muted">
             Every prompt is an experiment. Version them, run them, score them
@@ -160,29 +156,7 @@ export default function Prompts() {
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <Link
-            to="/dashboard/prompts/improve"
-            className="inline-flex items-center gap-1.5 rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition-standard hover:border-brand hover:text-brand"
-          >
-            <svg
-              width="13"
-              height="13"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"
-              />
-            </svg>
-            Improve with AI
-          </Link>
-
+        <div className="flex shrink-0 items-center">
           <button
             type="button"
             onClick={handleNewPrompt}

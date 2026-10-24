@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -347,3 +348,512 @@ class ModelExecutionValidationTests(TestCase):
             user_prompt="Do something: Testing custom model",
             system_prompt="",
 )
+
+
+class QwenExecutionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="qwenuser",
+            email="qwenuser@example.com",
+            password="password123",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Qwen Tutor",
+            category="engineering",
+            status="draft",
+        )
+
+        self.version = PromptVersion.objects.create(
+            prompt=self.prompt,
+            version_number=1,
+            content="Teach me: {input}",
+            system_prompt="Be a friendly tutor.",
+            created_by=self.user,
+        )
+
+        self.url = reverse("execution-list-create")
+
+    @patch("apps.executions.views.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_qwen_execution_passes_think_false(
+        self, mock_get_installed_models, mock_run_ollama
+    ):
+        mock_get_installed_models.return_value = [
+            {"name": "qwen3:4b", "model": "qwen3:4b"}
+        ]
+        mock_run_ollama.return_value = {
+            "message": {"content": "Here is the tutor explanation."},
+            "total_duration": 100000000,
+            "prompt_eval_count": 15,
+            "eval_count": 25,
+        }
+
+        payload = {
+            "prompt_version": self.version.id,
+            "model": "qwen3:4b",
+            "input_text": "Python recursion",
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["model"], "qwen3:4b")
+
+        execution = Execution.objects.get(id=response.data["id"])
+        self.assertEqual(execution.model, "qwen3:4b")
+        self.assertEqual(execution.status, "completed")
+
+        mock_run_ollama.assert_called_once_with(
+            model="qwen3:4b",
+            user_prompt="Teach me: Python recursion",
+            system_prompt="Be a friendly tutor.",
+            think=False,
+        )
+
+    @patch("apps.executions.views.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_qwen_execution_cleans_think_reasoning_tags(
+        self, mock_get_installed_models, mock_run_ollama
+    ):
+        mock_get_installed_models.return_value = [
+            {"name": "qwen3:4b", "model": "qwen3:4b"}
+        ]
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": "Let me think about recursion.\n</think>\n\nRecursion is a function calling itself."
+            },
+            "total_duration": 100000000,
+            "prompt_eval_count": 15,
+            "eval_count": 25,
+        }
+
+        payload = {
+            "prompt_version": self.version.id,
+            "model": "qwen3:4b",
+            "input_text": "Python recursion",
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data["output_text"],
+            "Recursion is a function calling itself.",
+        )
+
+        execution = Execution.objects.get(id=response.data["id"])
+        self.assertEqual(
+            execution.output_text,
+            "Recursion is a function calling itself.",
+        )
+
+    @patch("apps.executions.views.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_qwen_execution_timeout_returns_504_and_records_failure(
+        self, mock_get_installed_models, mock_run_ollama
+    ):
+        import requests
+        mock_get_installed_models.return_value = [
+            {"name": "qwen3:4b", "model": "qwen3:4b"}
+        ]
+        mock_run_ollama.side_effect = requests.exceptions.Timeout("Read timed out")
+
+        payload = {
+            "prompt_version": self.version.id,
+            "model": "qwen3:4b",
+            "input_text": "Python recursion",
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+        self.assertIn("Ollama took too long to respond", response.data["detail"])
+
+        execution = Execution.objects.get(id=response.data["execution_id"])
+        self.assertEqual(execution.status, "failed")
+        self.assertIn("Ollama took too long to respond", execution.error_message)
+
+    @patch("apps.executions.views.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_llama_and_gemma_executions_do_not_pass_think(
+        self, mock_get_installed_models, mock_run_ollama
+    ):
+        mock_get_installed_models.return_value = [
+            {"name": "gemma3:4b", "model": "gemma3:4b"},
+            {"name": "llama3.2:1b", "model": "llama3.2:1b"},
+        ]
+        mock_run_ollama.return_value = {
+            "message": {"content": "Standard output."},
+            "total_duration": 50000000,
+        }
+
+        for test_model in ["gemma3:4b", "llama3.2:1b"]:
+            mock_run_ollama.reset_mock()
+            payload = {
+                "prompt_version": self.version.id,
+                "model": test_model,
+                "input_text": "Test input",
+            }
+
+            response = self.client.post(self.url, payload, format="json")
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            mock_run_ollama.assert_called_once_with(
+                model=test_model,
+                user_prompt="Teach me: Test input",
+                system_prompt="Be a friendly tutor.",
+            )
+
+
+class ExecutionDeletionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="owneruser",
+            email="owneruser@example.com",
+            password="password123",
+        )
+        self.other_user = User.objects.create_user(
+            username="otheruser",
+            email="otheruser@example.com",
+            password="password123",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Customer Support",
+            category="support",
+            status="testing",
+        )
+
+        self.version = PromptVersion.objects.create(
+            prompt=self.prompt,
+            version_number=1,
+            content="Support: {input}",
+            created_by=self.user,
+        )
+
+        self.execution = Execution.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.version,
+            model="gemma3:4b",
+            input_text="My order has not arrived.",
+            output_text="We apologize for the delay. Your tracking is 123.",
+            status="completed",
+        )
+
+        self.url = reverse("execution-detail", kwargs={"pk": self.execution.id})
+
+    def test_owner_can_delete_execution(self):
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Execution is deleted from DB
+        self.assertFalse(Execution.objects.filter(id=self.execution.id).exists())
+
+        # Prompt and PromptVersion are preserved
+        self.assertTrue(Prompt.objects.filter(id=self.prompt.id).exists())
+        self.assertTrue(PromptVersion.objects.filter(id=self.version.id).exists())
+
+    def test_other_user_cannot_delete_execution(self):
+        self.client.force_authenticate(user=self.other_user)
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("You do not have permission", response.data["detail"])
+
+        # Execution remains intact
+        self.assertTrue(Execution.objects.filter(id=self.execution.id).exists())
+
+    def test_unauthenticated_cannot_delete_execution(self):
+        self.client.logout()
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(Execution.objects.filter(id=self.execution.id).exists())
+
+    def test_delete_execution_linked_to_evaluation_is_prevented(self):
+        from apps.evaluations.models import (
+            EvaluationDataset,
+            TestCase as EvalTestCase,
+            EvaluationRun,
+            EvaluationResult,
+        )
+
+        dataset = EvaluationDataset.objects.create(
+            owner=self.user,
+            name="Support Dataset",
+        )
+        test_case = EvalTestCase.objects.create(
+            dataset=dataset,
+            name="Shipping delay",
+            input_text="Where is my order?",
+        )
+        run = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.version,
+            dataset=dataset,
+            model="gemma3:4b",
+            status="completed",
+        )
+        EvaluationResult.objects.create(
+            evaluation_run=run,
+            test_case=test_case,
+            execution=self.execution,
+            status="completed",
+            score=85.0,
+        )
+
+        # Attempt to delete execution linked to evaluation result
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("referenced by evaluation run results", response.data["detail"])
+
+        # Record remains completely intact
+        self.assertTrue(Execution.objects.filter(id=self.execution.id).exists())
+
+    def test_delete_nonexistent_execution_returns_404(self):
+        url = reverse("execution-detail", kwargs={"pk": 999999})
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ExecutionCompareRecommendTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="testcomparator",
+            email="compare@example.com",
+            password="password123",
+        )
+        self.other_user = User.objects.create_user(
+            username="othercomparator",
+            email="othercompare@example.com",
+            password="password123",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Customer Support Assistant",
+            category="support",
+            status="testing",
+        )
+
+        self.version_1 = PromptVersion.objects.create(
+            prompt=self.prompt,
+            version_number=1,
+            content="Help the customer concisely: {input}",
+            system_prompt="Be a polite and concise support agent.",
+            created_by=self.user,
+        )
+
+        self.version_2 = PromptVersion.objects.create(
+            prompt=self.prompt,
+            version_number=2,
+            content="Help the customer step-by-step: {input}",
+            system_prompt="Be a structured and detailed support agent.",
+            created_by=self.user,
+        )
+
+        self.exec_a = Execution.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.version_1,
+            model="gemma3:4b",
+            input_text="My order has not arrived.",
+            output_text="Please check your tracking link sent via email. If it has been more than 5 days, contact shipping support.",
+            status="completed",
+        )
+
+        self.exec_b = Execution.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.version_2,
+            model="gemma3:4b",
+            input_text="My order has not arrived.",
+            output_text="Here are the steps to track your order:\n1. Open your confirmation email.\n2. Click the tracking link.\n3. Check delivery carrier status.",
+            status="completed",
+        )
+
+        self.url = reverse("execution-compare-recommend")
+
+    def test_unauthenticated_cannot_compare(self):
+        self.client.logout()
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": self.exec_b.id,
+        })
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_missing_execution_ids_returns_400(self):
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Both execution_a_id and execution_b_id are required", response.data["detail"])
+
+    def test_same_execution_id_returns_400(self):
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": self.exec_a.id,
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot compare an execution with itself", response.data["detail"])
+
+    def test_unowned_execution_returns_404(self):
+        other_exec = Execution.objects.create(
+            owner=self.other_user,
+            prompt=self.prompt,
+            prompt_version=self.version_1,
+            model="gemma3:4b",
+            input_text="Hello",
+            output_text="Hi there",
+            status="completed",
+        )
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": other_exec.id,
+        })
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_failed_or_empty_execution_returns_400(self):
+        failed_exec = Execution.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.version_1,
+            model="gemma3:4b",
+            input_text="Hello",
+            output_text="",
+            status="failed",
+        )
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": failed_exec.id,
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("usable output", response.data["detail"])
+
+    @patch("apps.executions.services.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_compare_recommend_winner_b_success(self, mock_models, mock_run_ollama):
+        mock_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "recommendation": "execution_b",
+                    "winner_label": "Experiment B (v2)",
+                    "reasoning": "Experiment B provided actionable step-by-step guidance following the structured prompt instructions.",
+                    "strengths_weaknesses": {
+                        "execution_a": {
+                            "strengths": ["Concise", "Polite"],
+                            "weaknesses": ["Lacks step-by-step detail"]
+                        },
+                        "execution_b": {
+                            "strengths": ["Structured steps", "Clear tracking advice"],
+                            "weaknesses": ["Slightly longer"]
+                        }
+                    },
+                    "criteria_comparison": {
+                        "relevance": "Both address the shipping query directly.",
+                        "instruction_adherence": "Experiment B adhered more closely to step-by-step requirements."
+                    }
+                })
+            }
+        }
+
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": self.exec_b.id,
+            "judge_model": "gemma3:4b",
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["recommendation"], "execution_b")
+        self.assertEqual(response.data["recommended_execution_id"], self.exec_b.id)
+        self.assertEqual(response.data["recommended_version_number"], 2)
+        self.assertIn("Experiment B", response.data["winner_label"])
+        self.assertTrue(response.data["fairness"]["same_input"])
+        self.assertTrue(response.data["fairness"]["same_model"])
+
+    @patch("apps.executions.services.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_compare_recommend_too_close_to_call(self, mock_models, mock_run_ollama):
+        mock_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "recommendation": "too_close_to_call",
+                    "winner_label": "Too close to call",
+                    "reasoning": "Both prompt executions perform with equal clarity and relevance with minor style differences.",
+                    "strengths_weaknesses": {
+                        "execution_a": {"strengths": ["Direct"], "weaknesses": []},
+                        "execution_b": {"strengths": ["Structured"], "weaknesses": []}
+                    }
+                })
+            }
+        }
+
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": self.exec_b.id,
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["recommendation"], "too_close_to_call")
+        self.assertIsNone(response.data["recommended_execution_id"])
+        self.assertEqual(response.data["winner_label"], "Too close to call")
+
+    @patch("apps.executions.services.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_fairness_disclosures_for_different_inputs_and_models(self, mock_models, mock_run_ollama):
+        mock_models.return_value = [
+            {"name": "gemma3:4b", "model": "gemma3:4b"},
+            {"name": "qwen3:4b", "model": "qwen3:4b"}
+        ]
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "recommendation": "execution_a",
+                    "reasoning": "Execution A is more concise."
+                })
+            }
+        }
+
+        different_exec = Execution.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.version_2,
+            model="qwen3:4b",
+            input_text="Can I return an opened item?",
+            output_text="Yes, within 30 days.",
+            status="completed",
+        )
+
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": different_exec.id,
+            "judge_model": "gemma3:4b",
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["fairness"]["same_input"])
+        self.assertFalse(response.data["fairness"]["same_model"])
+        disclosures_text = " ".join(response.data["fairness"]["disclosures"])
+        self.assertIn("different inputs", disclosures_text)
+        self.assertIn("different models", disclosures_text)
+
+    @patch("apps.executions.services.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_ollama_timeout_returns_504(self, mock_models, mock_run_ollama):
+        import requests
+        mock_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        mock_run_ollama.side_effect = requests.exceptions.Timeout("Read timed out")
+
+        response = self.client.post(self.url, {
+            "execution_a_id": self.exec_a.id,
+            "execution_b_id": self.exec_b.id,
+        })
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+        self.assertIn("timed out", response.data["detail"])

@@ -159,11 +159,7 @@ export default function EvaluationResult() {
       <section className="rounded-xl border border-border bg-surface p-6 shadow-subtle">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-              Evaluation result
-            </p>
-
-            <h1 className="mt-1 font-serif text-3xl sm:text-4xl tracking-tight text-ink">
+            <h1 className="font-serif text-3xl sm:text-4xl tracking-tight text-ink">
               Run #{run.id}
             </h1>
 
