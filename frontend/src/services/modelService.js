@@ -25,13 +25,26 @@ export function formatModelLabel(model) {
 
 /**
  * Determine best default model:
- * 1. Default to 'gemma3:4b' when installed.
- * 2. If 'gemma3:4b' is not installed, select the first available model.
- * 3. If no models available, return empty string.
+ * 1. If preferredModel is provided and installed, use it.
+ * 2. Otherwise default to 'gemma3:4b' when installed.
+ * 3. If 'gemma3:4b' is not installed, select the first available model.
+ * 4. If no models available, return empty string.
  */
-export function pickDefaultModel(models) {
+export function pickDefaultModel(models, preferredModel) {
   if (!Array.isArray(models) || models.length === 0) {
     return "";
+  }
+
+  if (preferredModel) {
+    const preferred = models.find(
+      (m) =>
+        m.name === preferredModel ||
+        m.model === preferredModel ||
+        m.name.startsWith(preferredModel)
+    );
+    if (preferred) {
+      return preferred.name;
+    }
   }
 
   const gemma = models.find(

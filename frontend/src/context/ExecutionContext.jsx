@@ -7,10 +7,12 @@ import {
   useRef,
 } from "react";
 import { createExecution } from "../services/executionService";
+import { useAuth } from "./AuthContext";
 
 const ExecutionContext = createContext(null);
 
 export function ExecutionProvider({ children }) {
+  const { user } = useAuth();
   // Map of promptId -> execution task state
   // Keyed by string(promptId)
   const [executionsByPrompt, setExecutionsByPrompt] = useState({});
@@ -114,13 +116,16 @@ export function ExecutionProvider({ children }) {
           input_text: trimmedInput,
         });
 
+        const shouldScroll = user?.auto_scroll_results !== false;
+        const notify = user?.notify_on_completion !== false;
+
         const completedTask = {
           ...task,
           loading: false,
           status: "completed",
           result,
           error: "",
-          shouldScrollResponse: true,
+          shouldScrollResponse: shouldScroll,
           completedAt: Date.now(),
         };
 
@@ -130,15 +135,17 @@ export function ExecutionProvider({ children }) {
         }));
         setActiveTask(completedTask);
 
-        setNotification({
-          type: "success",
-          promptId: key,
-          promptTitle: task.promptTitle,
-          message: `Execution completed for ${task.promptTitle}!`,
-          model,
-          executionId: result.id,
-          timestamp: Date.now(),
-        });
+        if (notify) {
+          setNotification({
+            type: "success",
+            promptId: key,
+            promptTitle: task.promptTitle,
+            message: `Execution completed for ${task.promptTitle}!`,
+            model,
+            executionId: result.id,
+            timestamp: Date.now(),
+          });
+        }
 
         return { success: true, result };
       } catch (err) {
@@ -161,21 +168,23 @@ export function ExecutionProvider({ children }) {
         }));
         setActiveTask(failedTask);
 
-        setNotification({
-          type: "error",
-          promptId: key,
-          promptTitle: task.promptTitle,
-          message: errMsg,
-          model,
-          timestamp: Date.now(),
-        });
+        if (user?.notify_on_completion !== false) {
+          setNotification({
+            type: "error",
+            promptId: key,
+            promptTitle: task.promptTitle,
+            message: errMsg,
+            model,
+            timestamp: Date.now(),
+          });
+        }
 
         return { success: false, error: errMsg };
       } finally {
         runningPromisesRef.current.delete(key);
       }
     },
-    []
+    [user]
   );
 
   const getExecutionState = useCallback(

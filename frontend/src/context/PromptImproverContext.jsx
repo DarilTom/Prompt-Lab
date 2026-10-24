@@ -1,10 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback } from "react";
+import { useAuth } from "./AuthContext";
 import { improvePrompt, getPrompts } from "../services/promptService";
 
 const PromptImproverContext = createContext(null);
 
 export function PromptImproverProvider({ children }) {
+  const { user } = useAuth();
   // Input fields
   const [promptText, setPromptText] = useState("");
   const [context, setContext] = useState("");
@@ -129,15 +131,19 @@ export function PromptImproverProvider({ children }) {
         );
 
         // Trigger scroll once rendered
-        setShouldScroll(true);
+        if (user?.auto_scroll_results !== false) {
+          setShouldScroll(true);
+        }
 
         // Header notification
-        setNotification({
-          type: "success",
-          message: `Prompt improved with ${result.model || model}!`,
-          model: result.model || model,
-          timestamp: Date.now(),
-        });
+        if (user?.notify_on_completion !== false) {
+          setNotification({
+            type: "success",
+            message: `Prompt improved with ${result.model || model}!`,
+            model: result.model || model,
+            timestamp: Date.now(),
+          });
+        }
       } catch (err) {
         console.error(err);
         const errMsg =
@@ -146,17 +152,19 @@ export function PromptImproverProvider({ children }) {
             ? `Unable to improve prompt with ${model}. Please ensure Ollama is running locally.`
             : "Unable to improve prompt. Please check that Ollama is running locally.");
         setError(errMsg);
-        setNotification({
-          type: "error",
-          message: errMsg,
-          model,
-          timestamp: Date.now(),
-        });
+        if (user?.notify_on_completion !== false) {
+          setNotification({
+            type: "error",
+            message: errMsg,
+            model,
+            timestamp: Date.now(),
+          });
+        }
       } finally {
         setImproving(false);
       }
     },
-    [improving, promptText, context, tone, outputFormat]
+    [improving, promptText, context, tone, outputFormat, user]
   );
 
   // Improve again action (successive variation)
@@ -211,26 +219,32 @@ export function PromptImproverProvider({ children }) {
         setImprovedResult(result);
         setEditablePrompt(nextSug.improved_prompt);
         setSavedPromptInfo(null);
-        setShouldScroll(true);
+        if (user?.auto_scroll_results !== false) {
+          setShouldScroll(true);
+        }
 
-        setNotification({
-          type: "success",
-          message: `New suggestion generated with ${result.model || model}!`,
-          model: result.model || model,
-          timestamp: Date.now(),
-        });
+        if (user?.notify_on_completion !== false) {
+          setNotification({
+            type: "success",
+            message: `New suggestion generated with ${result.model || model}!`,
+            model: result.model || model,
+            timestamp: Date.now(),
+          });
+        }
       } catch (err) {
         console.error(err);
         const errMsg =
           err.message ||
           "Unable to generate another suggestion. Please check that Ollama is running.";
         setError(errMsg);
-        setNotification({
-          type: "error",
-          message: errMsg,
-          model,
-          timestamp: Date.now(),
-        });
+        if (user?.notify_on_completion !== false) {
+          setNotification({
+            type: "error",
+            message: errMsg,
+            model,
+            timestamp: Date.now(),
+          });
+        }
       } finally {
         setImproving(false);
       }
@@ -246,6 +260,7 @@ export function PromptImproverProvider({ children }) {
       suggestions,
       activeSuggestionIndex,
       editablePrompt,
+      user,
     ]
   );
 

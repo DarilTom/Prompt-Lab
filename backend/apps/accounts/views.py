@@ -19,7 +19,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .serializers import (
     EmailTokenObtainPairSerializer,
+    PasswordChangeSerializer,
     RegisterSerializer,
+    UserProfileSerializer,
 )
 
 User = get_user_model()
@@ -173,18 +175,47 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
+        serializer = UserProfileSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
+    def patch(self, request):
+        serializer = UserProfileSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response(
+                UserProfileSerializer(user).data,
+                status=status.HTTP_200_OK,
+            )
         return Response(
-            {
-                "id": user.id,
-                "name": user.first_name,
-                "email": user.email,
-                "is_staff": user.is_staff,
-                "is_superuser": user.is_superuser,
-                "is_admin": bool(user.is_staff or user.is_superuser),
-            },
-            status=status.HTTP_200_OK,
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def put(self, request):
+        return self.patch(request)
+
+
+class PasswordChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = PasswordChangeSerializer(
+            data=request.data,
+            context={"user": request.user},
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {"message": "Password changed successfully."},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
 

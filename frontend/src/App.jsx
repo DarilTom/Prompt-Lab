@@ -28,17 +28,10 @@ import EvaluationResult from "./pages/dashboard/EvaluationResult";
 import EvaluationCompare from "./pages/dashboard/EvaluationCompare";
 import RepeatEvaluation from "./pages/dashboard/RepeatEvaluation";
 import VersionPerformanceAnalysis from "./pages/dashboard/VersionPerformanceAnalysis";
+import Settings from "./pages/dashboard/Settings";
 
 
-// Placeholder for future pages — swap out when built
-function ComingSoon({ label }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <h1 className="font-serif text-3xl text-ink">{label}</h1>
-      <p className="mt-1 text-sm text-muted">This section is under construction. Coming soon.</p>
-    </div>
-  );
-}
+
 
 function App() {
   return (
@@ -71,7 +64,7 @@ function App() {
             <Route path="executions/:id" element={<ExecutionDetail />} />
             <Route path="comparisons" element={<Comparisons />} />
             <Route path="analytics"element={<Analytics />}/>
-            <Route path="settings" element={<ComingSoon label="Settings" />} />
+            <Route path="settings" element={<Settings />} />
 
             {/* Admin only */}
             <Route element={<AdminRoute />}>

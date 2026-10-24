@@ -1,16 +1,24 @@
 import { useState, useEffect, useCallback } from "react";
 import { getInstalledModels, pickDefaultModel } from "../services/modelService";
+import { useAuth } from "../context/AuthContext";
 
 export { pickDefaultModel };
 
 /**
  * Hook to retrieve and cache locally installed Ollama models.
+ * Automatically respects the signed-in user's default model preference.
  */
-export function useInstalledModels() {
+export function useInstalledModels(overridePreferredModel) {
+  const { user } = useAuth();
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadTrigger, setReloadTrigger] = useState(0);
+
+  const preferred =
+    overridePreferredModel !== undefined
+      ? overridePreferredModel
+      : (user?.default_model || "");
 
   const retry = useCallback(() => {
     setLoading(true);
@@ -48,7 +56,7 @@ export function useInstalledModels() {
     };
   }, [reloadTrigger]);
 
-  const defaultModel = pickDefaultModel(models);
+  const defaultModel = pickDefaultModel(models, preferred);
 
   return {
     models,
@@ -56,5 +64,6 @@ export function useInstalledModels() {
     error,
     retry,
     defaultModel,
+    preferredModel: preferred,
   };
 }

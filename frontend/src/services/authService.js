@@ -132,3 +132,25 @@ export async function loginWithGoogle(credential) {
   setTokens(data);
   return data;
 }
+
+export async function updateUserProfile(profileData) {
+  return apiRequest("/auth/me/", {
+    method: "PATCH",
+    body: JSON.stringify(profileData),
+  });
+}
+
+export async function changePassword({
+  current_password,
+  new_password,
+  new_password_confirm,
+}) {
+  return apiRequest("/auth/change-password/", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password,
+      new_password,
+      new_password_confirm,
+    }),
+  });
+}

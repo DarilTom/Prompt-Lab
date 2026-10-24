@@ -41,9 +41,21 @@ export function AuthProvider({ children }) {
     setUser(null);
   }
 
+  async function refreshUser() {
+    try {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      return currentUser;
+    } catch (error) {
+      console.error("Failed to refresh user:", error);
+      return null;
+    }
+  }
+
   const value = {
     user,
     setUser,
+    refreshUser,
     loading,
     isAuthenticated: Boolean(user),
     isAdmin: Boolean(user?.is_staff || user?.is_superuser || user?.is_admin),
