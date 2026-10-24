@@ -4,10 +4,11 @@ import { Link } from "react-router-dom";
 import {
   createEvaluationRun,
   getEvaluationDatasets,
-  getEvaluationRun,
   getPromptsForEvaluation,
   getPromptVersionsForEvaluation,
 } from "../../services/evaluationService";
+import ModelSelector from "../../components/dashboard/ModelSelector";
+import { useInstalledModels } from "../../hooks/useInstalledModels";
 
 function unwrapList(data) {
   if (Array.isArray(data)) {
@@ -117,8 +118,22 @@ export default function RunEvaluation() {
   const [selectedDatasetId, setSelectedDatasetId] =
     useState("");
 
-  const [model, setModel] =
-    useState("gemma3:4b");
+  const {
+    models: installedModels,
+    loading: modelsLoading,
+    error: modelsError,
+    retry: retryModels,
+    defaultModel,
+  } = useInstalledModels();
+
+  const [userModel, setUserModel] = useState(null);
+  const model =
+    userModel &&
+    installedModels.some(
+      (m) => m.name === userModel || m.model === userModel
+    )
+      ? userModel
+      : defaultModel;
 
   const [loading, setLoading] = useState(true);
   const [loadingVersions, setLoadingVersions] =
@@ -240,6 +255,9 @@ export default function RunEvaluation() {
     selectedVersionId &&
     selectedDatasetId &&
     model &&
+    installedModels.length > 0 &&
+    !modelsLoading &&
+    !modelsError &&
     !running &&
     selectedDataset &&
     Number(selectedDataset.test_case_count || 0) >
@@ -476,26 +494,19 @@ export default function RunEvaluation() {
 
               {/* Model */}
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink">
-                  Model
-                </label>
-
-                <select
+                <ModelSelector
+                  label="Model"
+                  labelClassName="mb-1.5 block text-xs font-medium text-ink"
+                  selectClassName="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none transition-standard focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
                   value={model}
-                  onChange={(event) =>
-                    setModel(event.target.value)
-                  }
+                  onChange={setUserModel}
+                  models={installedModels}
+                  loading={modelsLoading}
+                  error={modelsError}
+                  onRetry={retryModels}
                   disabled={running}
-                  className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none transition-standard focus:border-brand disabled:opacity-60"
-                >
-                  <option value="gemma3:4b">
-                    Gemma 3 4B
-                  </option>
-                </select>
-
-                <p className="mt-2 text-xs text-muted">
-                  Local Ollama model
-                </p>
+                  helperText="Local Ollama model"
+                />
               </div>
             </div>
 

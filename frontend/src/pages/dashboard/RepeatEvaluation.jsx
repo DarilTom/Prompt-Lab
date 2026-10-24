@@ -7,6 +7,8 @@ import {
   getPromptsForEvaluation,
   getPromptVersionsForEvaluation,
 } from "../../services/evaluationService";
+import ModelSelector from "../../components/dashboard/ModelSelector";
+import { useInstalledModels } from "../../hooks/useInstalledModels";
 
 function unwrapList(data) {
   if (Array.isArray(data)) {
@@ -135,7 +137,23 @@ export default function RepeatEvaluation() {
 
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
   const [repeatCount, setRepeatCount] = useState(3);
-  const [model, setModel] = useState("gemma3:4b");
+
+  const {
+    models: installedModels,
+    loading: modelsLoading,
+    error: modelsError,
+    retry: retryModels,
+    defaultModel,
+  } = useInstalledModels();
+
+  const [userModel, setUserModel] = useState(null);
+  const model =
+    userModel &&
+    installedModels.some(
+      (m) => m.name === userModel || m.model === userModel
+    )
+      ? userModel
+      : defaultModel;
 
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingVersions, setLoadingVersions] = useState(false);
@@ -240,6 +258,9 @@ export default function RepeatEvaluation() {
     selectedVersionId &&
     selectedDatasetId &&
     model &&
+    installedModels.length > 0 &&
+    !modelsLoading &&
+    !modelsError &&
     selectedDataset &&
     Number(selectedDataset.test_case_count || 0) > 0 &&
     numericRepeatCount >= 2 &&
@@ -509,17 +530,19 @@ export default function RepeatEvaluation() {
             {/* Model & Repeat Count */}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-ink">
-                  Model
-                </label>
-                <select
+                <ModelSelector
+                  label="Model"
+                  labelClassName="mb-1.5 block text-xs font-medium text-ink"
+                  selectClassName="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={setUserModel}
+                  models={installedModels}
+                  loading={modelsLoading}
+                  error={modelsError}
+                  onRetry={retryModels}
                   disabled={running}
-                  className="w-full rounded-control border border-border bg-background px-3 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60"
-                >
-                  <option value="gemma3:4b">gemma3:4b (Local Ollama)</option>
-                </select>
+                  helperText="Local Ollama model"
+                />
               </div>
 
               <div>

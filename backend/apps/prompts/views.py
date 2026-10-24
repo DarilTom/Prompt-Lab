@@ -16,6 +16,7 @@ from .serializers import (
     PromptSerializer,
     PromptVersionSerializer,
 )
+from apps.executions.services import validate_model_installed
 from .services import generate_improved_prompt
 
 
@@ -203,11 +204,20 @@ class PromptImproveView(APIView):
         elif not isinstance(output_format, str):
             output_format = str(output_format).strip() if output_format else ""
 
-        model = request.data.get("model", "gemma3:4b")
+        model = request.data.get("model")
         if not model or not str(model).strip():
-            model = "gemma3:4b"
-        else:
-            model = str(model).strip()
+            return Response(
+                {"detail": "model is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        model = str(model).strip()
+
+        is_valid, validation_error = validate_model_installed(model)
+        if not is_valid:
+            return Response(
+                {"detail": validation_error},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             result = generate_improved_prompt(

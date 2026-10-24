@@ -137,11 +137,16 @@ def generate_improved_prompt(
 
     user_content += "\nPlease generate an improved, production-ready version of this prompt."
 
+    run_kwargs = {}
+    if "qwen" in clean_model.lower():
+        run_kwargs["think"] = False
+
     try:
         raw_result = run_ollama(
             model=clean_model,
             user_prompt=user_content,
             system_prompt=IMPROVER_SYSTEM_PROMPT,
+            **run_kwargs,
         )
     except requests.exceptions.ConnectionError:
         raise ConnectionError(
@@ -163,7 +168,11 @@ def generate_improved_prompt(
         message_content = str(message_content) if message_content else ""
     message_content = message_content.strip()
 
-    parsed = _extract_json(message_content)
+    # Strip any <think>...</think> reasoning blocks if present
+    cleaned_message = re.sub(r"<think>.*?</think>", "", message_content, flags=re.DOTALL).strip()
+    cleaned_message = re.sub(r"</?think>", "", cleaned_message).strip()
+
+    parsed = _extract_json(cleaned_message) or _extract_json(message_content)
 
     if parsed:
         if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
@@ -183,7 +192,7 @@ def generate_improved_prompt(
                 }
 
     # Fallback if model didn't follow JSON format:
-    cleaned_content = re.sub(r"^```[a-z]*\n?", "", message_content)
+    cleaned_content = re.sub(r"^```[a-z]*\n?", "", cleaned_message or message_content)
     cleaned_content = re.sub(r"\n?```$", "", cleaned_content).strip()
 
     return {

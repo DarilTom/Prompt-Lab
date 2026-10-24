@@ -1,5 +1,9 @@
 import { apiRequest } from "./api";
 
+export async function getInstalledModels() {
+  return apiRequest("/executions/models/");
+}
+
 export async function createExecution({
   prompt_version,
   model,

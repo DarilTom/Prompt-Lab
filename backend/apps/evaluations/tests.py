@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -139,3 +141,16 @@ class EvaluationRunDetailTests(TestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("apps.executions.services.get_installed_models")
+    def test_create_evaluation_run_rejects_nonexistent_model(self, mock_get_models):
+        mock_get_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        url = reverse("evaluation-run-list-create")
+        payload = {
+            "prompt_version": self.prompt_version.id,
+            "dataset": self.dataset.id,
+            "model": "nonexistent:model",
+        }
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not installed in local Ollama", response.data["detail"])

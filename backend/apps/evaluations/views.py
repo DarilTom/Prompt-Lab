@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.executions.services import validate_model_installed
 from apps.prompts.models import PromptVersion
 
 from .models import (
@@ -330,6 +331,13 @@ class EvaluationRunListCreateView(APIView):
             serializer.validated_data["model"]
             .strip()
         )
+
+        is_valid, validation_error = validate_model_installed(model)
+        if not is_valid:
+            return Response(
+                {"detail": validation_error},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # ----------------------------------------------------
         # Verify prompt version belongs to current user

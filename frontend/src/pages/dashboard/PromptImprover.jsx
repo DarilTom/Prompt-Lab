@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
   createPrompt,
   createPromptVersion,
-  getPrompts,
-  improvePrompt,
 } from "../../services/promptService";
+import ModelSelector from "../../components/dashboard/ModelSelector";
+import { useInstalledModels } from "../../hooks/useInstalledModels";
+import { usePromptImprover } from "../../context/PromptImproverContext";
 
 const TONE_OPTIONS = [
   { value: "", label: "Natural / Default" },
@@ -39,177 +40,130 @@ const CATEGORIES = [
 export default function PromptImprover() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const resultsRef = useRef(null);
 
   const greetingHeading = user?.name?.trim()
     ? `Welcome back, ${user.name.trim()}`
     : "Welcome back";
 
-  // Input states
-  const [promptText, setPromptText] = useState("");
-  const [context, setContext] = useState("");
-  const [tone, setTone] = useState("");
-  const [outputFormat, setOutputFormat] = useState("");
-  const [model, setModel] = useState("gemma3:4b");
+  // Installed models
+  const {
+    models: installedModels,
+    loading: modelsLoading,
+    error: modelsError,
+    retry: retryModels,
+    defaultModel,
+  } = useInstalledModels();
 
-  // Improver generation state
-  const [improving, setImproving] = useState(false);
-  const [error, setError] = useState("");
-  const [improvedResult, setImprovedResult] = useState(null);
-  const [originalDraft, setOriginalDraft] = useState("");
-  const [editablePrompt, setEditablePrompt] = useState("");
+  // Context-backed prompt improvement state (survives in-app navigation)
+  const {
+    promptText,
+    setPromptText,
+    context,
+    setContext,
+    tone,
+    setTone,
+    outputFormat,
+    setOutputFormat,
+    userModel,
+    setUserModel,
 
-  // Suggestions history (for "Improve Again" without overwriting)
-  const [suggestions, setSuggestions] = useState([]);
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+    improving,
+    error,
+    setError,
+    improvedResult,
+    originalDraft,
+    editablePrompt,
+    setEditablePrompt,
+    suggestions,
+    activeSuggestionIndex,
 
-  // Save workflow states
-  const [userPrompts, setUserPrompts] = useState([]);
-  const [saveMode, setSaveMode] = useState(null); // 'new' | 'version' | null
-  const [saveLoading, setSaveLoading] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [savedPromptInfo, setSavedPromptInfo] = useState(null);
+    shouldScroll,
+    clearShouldScroll,
 
-  // Form states for saving
-  const [newTitle, setNewTitle] = useState("");
-  const [newCategory, setNewCategory] = useState("engineering");
-  const [selectedPromptId, setSelectedPromptId] = useState("");
-  const [versionNote, setVersionNote] = useState("Improved via AI Prompt Improver");
+    userPrompts,
+    refreshUserPrompts,
+    saveMode,
+    setSaveMode,
+    saveLoading,
+    setSaveLoading,
+    saveError,
+    setSaveError,
+    savedPromptInfo,
+    setSavedPromptInfo,
+    newTitle,
+    setNewTitle,
+    newCategory,
+    setNewCategory,
+    selectedPromptId,
+    setSelectedPromptId,
+    versionNote,
+    setVersionNote,
+
+    handleImprove,
+    handleImproveAgain,
+    handleSelectSuggestion,
+  } = usePromptImprover();
+
+  const model =
+    userModel &&
+    installedModels.some(
+      (m) => m.name === userModel || m.model === userModel
+    )
+      ? userModel
+      : defaultModel;
 
   // Copy feedback
   const [copiedOriginal, setCopiedOriginal] = useState(false);
   const [copiedImproved, setCopiedImproved] = useState(false);
 
-  // Load existing prompts for the "Save as version" dropdown
+  // Load existing prompts for the "Save as version" dropdown if needed
   useEffect(() => {
-    async function loadPrompts() {
-      try {
-        const res = await getPrompts();
-        const list = Array.isArray(res) ? res : res?.results || [];
-        setUserPrompts(list);
-        if (list.length > 0) {
-          setSelectedPromptId(String(list[0].id));
-        }
-      } catch (err) {
-        console.warn("Could not load user prompts for version selection:", err);
-      }
+    if (userPrompts.length === 0) {
+      refreshUserPrompts();
     }
-    loadPrompts();
-  }, []);
+  }, [userPrompts.length, refreshUserPrompts]);
 
-  async function handleImprove(event) {
+  // Issue 1: Smoothly scroll to the generated prompt results after improvement succeeds
+  useEffect(() => {
+    if (shouldScroll && improvedResult && resultsRef.current) {
+      const timer = setTimeout(() => {
+        resultsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        clearShouldScroll();
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldScroll, improvedResult, clearShouldScroll]);
+
+  async function onSubmit(event) {
     if (event) event.preventDefault();
+    if (improving) return;
+
     if (!promptText.trim()) {
       setError("Please describe what you want the AI to accomplish.");
       return;
     }
 
-    try {
-      setImproving(true);
-      setError("");
-      setSaveError("");
-      setSavedPromptInfo(null);
-      setSaveMode(null);
-
-      const result = await improvePrompt({
-        prompt_text: promptText.trim(),
-        context: context.trim(),
-        tone,
-        output_format: outputFormat,
-        model,
-      });
-
-      const initialSug = {
-        id: Date.now(),
-        improved_prompt: result.improved_prompt || "",
-        explanation: result.explanation || "",
-        model: result.model || model,
-        editable_text: result.improved_prompt || "",
-      };
-
-      setOriginalDraft(promptText.trim());
-      setSuggestions([initialSug]);
-      setActiveSuggestionIndex(0);
-      setImprovedResult(result);
-      setEditablePrompt(result.improved_prompt || "");
-
-      // Pre-fill a default title for save-as-new based on original prompt
-      const words = promptText.trim().split(/\s+/).slice(0, 5).join(" ");
-      setNewTitle(words ? words.charAt(0).toUpperCase() + words.slice(1) : "Improved Prompt");
-    } catch (err) {
-      console.error(err);
-      setError(
-        err.message ||
-          "Unable to improve prompt. Please ensure Ollama is running locally with gemma3:4b."
-      );
-    } finally {
-      setImproving(false);
-    }
-  }
-
-  async function handleImproveAgain() {
-    if (improving || saveLoading) return;
-    const baseGoal = originalDraft || promptText.trim();
-    if (!baseGoal) {
-      setError("Please describe what you want the AI to accomplish.");
+    if (!model) {
+      setError("Please select an available Ollama model.");
       return;
     }
 
-    try {
-      setImproving(true);
-      setError("");
-      setSaveError("");
-
-      // Preserve user edits on the currently active suggestion before generating another
-      const updatedSuggestions = suggestions.map((sug, idx) =>
-        idx === activeSuggestionIndex ? { ...sug, editable_text: editablePrompt } : sug
-      );
-
-      const result = await improvePrompt({
-        prompt_text: baseGoal,
-        context: context.trim(),
-        tone,
-        output_format: outputFormat,
-        model,
-      });
-
-      const nextSug = {
-        id: Date.now(),
-        improved_prompt: result.improved_prompt || "",
-        explanation: result.explanation || "",
-        model: result.model || model,
-        editable_text: result.improved_prompt || "",
-      };
-
-      const finalSuggestions = [...updatedSuggestions, nextSug];
-      setSuggestions(finalSuggestions);
-      setActiveSuggestionIndex(finalSuggestions.length - 1);
-      setImprovedResult(result);
-      setEditablePrompt(nextSug.improved_prompt);
-      setSavedPromptInfo(null);
-    } catch (err) {
-      console.error(err);
-      setError(
-        err.message ||
-          "Unable to generate another suggestion. Please check that Ollama is running."
-      );
-    } finally {
-      setImproving(false);
-    }
+    await handleImprove({
+      promptText,
+      context,
+      tone,
+      outputFormat,
+      model,
+    });
   }
 
-  function handleSelectSuggestion(index) {
-    if (index === activeSuggestionIndex || index < 0 || index >= suggestions.length) return;
-
-    // Save current active edits into active suggestion
-    const updated = suggestions.map((sug, idx) =>
-      idx === activeSuggestionIndex ? { ...sug, editable_text: editablePrompt } : sug
-    );
-    setSuggestions(updated);
-
-    const target = updated[index];
-    setActiveSuggestionIndex(index);
-    setEditablePrompt(target.editable_text);
-    setImprovedResult(target);
+  async function onImproveAgain() {
+    if (improving || saveLoading) return;
+    await handleImproveAgain({ model });
   }
 
   function handleCopy(text, setFeedback) {
@@ -252,12 +206,7 @@ export default function PromptImprover() {
       setSaveMode(null);
 
       // Refresh prompt list in background so "Save as version" is immediately updated
-      getPrompts()
-        .then((res) => {
-          const list = Array.isArray(res) ? res : res?.results || [];
-          setUserPrompts(list);
-        })
-        .catch(() => {});
+      refreshUserPrompts();
 
       if (andOpenSandbox) {
         navigate(`/dashboard/prompts/${created.id}#execution-sandbox`);
@@ -335,7 +284,7 @@ export default function PromptImprover() {
 
       {/* Editor Card */}
       <section className="rounded-card border border-border bg-surface p-6 shadow-subtle">
-        <form onSubmit={handleImprove} className="space-y-5">
+        <form onSubmit={onSubmit} className="space-y-5">
           {/* Main Goal */}
           <div>
             <label
@@ -441,20 +390,20 @@ export default function PromptImprover() {
               </span>
             </summary>
 
-            <div className="mt-3 max-w-xs">
-              <label className="mb-1 block text-xs font-medium text-muted">
-                Optimizer Model
-              </label>
-              <select
+            <div className="mt-3 max-w-sm">
+              <ModelSelector
+                label="Optimizer Model"
+                labelClassName="mb-1 block text-xs font-medium text-muted"
+                selectClassName="w-full rounded-control border border-border bg-background px-3 py-2 text-xs font-mono text-ink outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
                 value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full rounded-control border border-border bg-background px-3 py-2 text-xs font-mono text-ink outline-none focus:border-brand"
-              >
-                <option value="gemma3:4b">gemma3:4b (Local Ollama)</option>
-              </select>
-              <p className="mt-1 text-[10px] text-muted">
-                Runs locally via Ollama on port 11434.
-              </p>
+                onChange={setUserModel}
+                models={installedModels}
+                loading={modelsLoading}
+                error={modelsError}
+                onRetry={retryModels}
+                disabled={improving}
+                helperText="Runs locally via Ollama on port 11434."
+              />
             </div>
           </details>
 
@@ -466,7 +415,14 @@ export default function PromptImprover() {
 
             <button
               type="submit"
-              disabled={improving || !promptText.trim()}
+              disabled={
+                improving ||
+                !promptText.trim() ||
+                !model ||
+                installedModels.length === 0 ||
+                modelsLoading ||
+                !!modelsError
+              }
               className="inline-flex items-center gap-2 rounded-control bg-brand px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {improving ? (
@@ -500,7 +456,7 @@ export default function PromptImprover() {
 
       {/* Comparison & Improvement Results */}
       {improvedResult && (
-        <section className="space-y-6">
+        <section ref={resultsRef} className="space-y-6 scroll-mt-6">
           {/* Key Improvements Explanation Banner */}
           <div className="rounded-card border border-brand/20 bg-brand/5 p-5">
             <div className="flex items-center gap-2">
@@ -660,7 +616,7 @@ export default function PromptImprover() {
                 <button
                   type="button"
                   disabled={improving || saveLoading}
-                  onClick={handleImproveAgain}
+                  onClick={onImproveAgain}
                   className="inline-flex items-center gap-1.5 rounded-control border border-border bg-background px-3.5 py-2 text-xs font-semibold text-ink transition-colors hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
                   title="Generate another suggestion without overwriting your current prompt"
                 >

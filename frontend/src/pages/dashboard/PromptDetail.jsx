@@ -9,6 +9,8 @@ import {
 } from "../../services/promptService";
 
 import { createExecution } from "../../services/executionService";
+import ModelSelector from "../../components/dashboard/ModelSelector";
+import { useInstalledModels } from "../../hooks/useInstalledModels";
 
 const statusConfig = {
   production: {
@@ -38,13 +40,6 @@ const categoryLabels = {
   research: "Research",
   support: "Support",
 };
-
-const availableModels = [
-  {
-    value: "gemma3:4b",
-    label: "Gemma 3 4B",
-  },
-];
 
 function formatDate(value) {
   if (!value) return "—";
@@ -131,10 +126,23 @@ export default function PromptDetail() {
   const [changeSummary, setChangeSummary] = useState("");
   const [creatingVersion, setCreatingVersion] = useState(false);
 
-  // Execution state
-  const [selectedModel, setSelectedModel] = useState(
-    availableModels[0].value
-  );
+  // Execution state & installed models
+  const {
+    models: installedModels,
+    loading: modelsLoading,
+    error: modelsError,
+    retry: retryModels,
+    defaultModel,
+  } = useInstalledModels();
+
+  const [userModel, setUserModel] = useState(null);
+  const selectedModel =
+    userModel &&
+    installedModels.some(
+      (m) => m.name === userModel || m.model === userModel
+    )
+      ? userModel
+      : defaultModel;
 
   const [executionInput, setExecutionInput] = useState("");
 
@@ -317,6 +325,11 @@ export default function PromptDetail() {
       setExecutionError(
         "This prompt does not have a version that can be executed."
       );
+      return;
+    }
+
+    if (!selectedModel) {
+      setExecutionError("Please select an installed Ollama model to execute.");
       return;
     }
 
@@ -665,30 +678,16 @@ export default function PromptDetail() {
 
             {/* Model */}
             <div>
-              <label className="mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
-                Model
-              </label>
-
-              <select
+              <ModelSelector
                 value={selectedModel}
-                onChange={(event) =>
-                  setSelectedModel(event.target.value)
-                }
-                className="w-full rounded-control border border-border bg-background px-3 py-3 text-sm font-medium outline-none focus:border-brand"
-              >
-                {availableModels.map((model) => (
-                  <option
-                    key={model.value}
-                    value={model.value}
-                  >
-                    {model.label}
-                  </option>
-                ))}
-              </select>
-
-              <p className="mt-2 text-xs leading-5 text-muted">
-                Running locally through Ollama.
-              </p>
+                onChange={setUserModel}
+                models={installedModels}
+                loading={modelsLoading}
+                error={modelsError}
+                onRetry={retryModels}
+                disabled={executionLoading}
+                selectClassName="w-full rounded-control border border-border bg-background px-3 py-3 text-sm font-medium outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
+              />
             </div>
 
             {/* Input */}
@@ -713,7 +712,11 @@ export default function PromptDetail() {
                   type="submit"
                   disabled={
                     executionLoading ||
-                    !activeVersion
+                    !activeVersion ||
+                    !selectedModel ||
+                    installedModels.length === 0 ||
+                    modelsLoading ||
+                    !!modelsError
                   }
                   className="rounded-control bg-brand px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
