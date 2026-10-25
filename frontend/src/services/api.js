@@ -87,7 +87,7 @@ export async function apiRequest(endpoint, options = {}, retry = true) {
     }
   }
 
-  if (response.status === 401 && retry) {
+  if (response.status === 401 && retry && !endpoint.includes("/auth/login")) {
     const newAccessToken = await requestNewAccessToken();
 
     if (!newAccessToken) {

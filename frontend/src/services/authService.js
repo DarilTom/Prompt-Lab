@@ -25,13 +25,17 @@ export async function registerUser({
 }
 
 export async function loginUser({ email, password }) {
-  const data = await apiRequest("/auth/login/", {
-    method: "POST",
-    body: JSON.stringify({
-      email,
-      password,
-    }),
-  });
+  const data = await apiRequest(
+    "/auth/login/",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        password,
+      }),
+    },
+    false
+  );
 
   setTokens(data);
 
