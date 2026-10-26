@@ -285,8 +285,30 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 
-# Ollama Local Service Configuration
-# Defaults to localhost:11434 for development; configurable for tunnels/custom endpoints in production.
+# Ollama Service Configuration
+# Defaults to localhost:11434 for development; configurable for ngrok or secure tunnels in production.
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_REQUEST_TIMEOUT = int(os.getenv("OLLAMA_REQUEST_TIMEOUT", "600"))
+OLLAMA_TUNNEL_USERNAME = os.getenv("OLLAMA_TUNNEL_USERNAME", "").strip()
+OLLAMA_TUNNEL_PASSWORD = os.getenv("OLLAMA_TUNNEL_PASSWORD", "").strip()
+
+if (OLLAMA_TUNNEL_USERNAME and not OLLAMA_TUNNEL_PASSWORD) or (OLLAMA_TUNNEL_PASSWORD and not OLLAMA_TUNNEL_USERNAME):
+    raise ImproperlyConfigured(
+        "Both OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD must be configured together for "
+        "Ollama tunnel authentication. Only one credential was provided."
+    )
+
+if OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD:
+    from urllib.parse import urlsplit
+    parsed_base = urlsplit(OLLAMA_BASE_URL)
+    if parsed_base.scheme.lower() != "https":
+        raise ImproperlyConfigured(
+            f"Ollama tunnel credentials require an HTTPS base URL to prevent plaintext credential "
+            f"transmission over unencrypted HTTP. Configured scheme was '{parsed_base.scheme}'."
+        )
+    if parsed_base.username or parsed_base.password or "@" in parsed_base.netloc:
+        raise ImproperlyConfigured(
+            "OLLAMA_BASE_URL must not contain embedded credentials in the URL. "
+            "Use OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD instead."
+        )

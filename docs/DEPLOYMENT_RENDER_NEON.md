@@ -158,12 +158,31 @@ When you are ready to connect the hosted backend to your local Ollama:
    OLLAMA_BASE_URL=https://ollama.yourdomain.com
    ```
 
-#### Option B: ngrok with HTTP Basic Auth
-1. Start an authenticated tunnel:
+#### Option B: ngrok with HTTP Basic Auth (Recommended for Quick Setup)
+
+1. **Start an authenticated ngrok tunnel on your local PC:**
    ```powershell
-   ngrok http 11434 --basic-auth="ollama_user:YourStrongPassword123!"
+   ngrok http 11434 --basic-auth="<tunnel_username>:<tunnel_password>"
    ```
-2. In Render, set `OLLAMA_BASE_URL` to your assigned ngrok HTTPS URL.
+   *Example placeholder command:*
+   ```powershell
+   ngrok http 11434 --basic-auth="promptlab_user:ChangeThisToAStrongPassword123!"
+   ```
+   ngrok will assign you a public HTTPS URL (e.g. `https://example-tunnel-1234.ngrok-free.app`).
+
+2. **Configure Render Environment Variables:**
+   In your Render Dashboard for `prompt-lab-backend` (under **Environment** tab):
+   | Variable | Example Value | Description |
+   | :--- | :--- | :--- |
+   | `OLLAMA_BASE_URL` | `https://example-tunnel-1234.ngrok-free.app` | Public HTTPS URL assigned by ngrok |
+   | `OLLAMA_TUNNEL_USERNAME` | `promptlab_user` | HTTP Basic Auth username configured in ngrok |
+   | `OLLAMA_TUNNEL_PASSWORD` | `ChangeThisToAStrongPassword123!` | HTTP Basic Auth password configured in ngrok |
+
+   > [!IMPORTANT]
+   > - **HTTPS Strictly Enforced:** Whenever tunnel credentials are configured, `OLLAMA_BASE_URL` **must** use the `https://` scheme (e.g. `https://your-tunnel.ngrok-free.app`). Prompt Lab strictly rejects plain HTTP URLs when tunnel credentials are set to prevent transmitting credentials in plaintext over public networks. Embedded credentials in URLs (e.g. `https://user:pass@host`) are also rejected.
+   > - **Both credentials required:** `OLLAMA_TUNNEL_USERNAME` and `OLLAMA_TUNNEL_PASSWORD` must be provided together whenever tunnel authentication is used. If only one credential is set, the backend will fail clearly to avoid sending incomplete authentication headers.
+   > - **Local Development:** When developing locally, leave `OLLAMA_TUNNEL_USERNAME` and `OLLAMA_TUNNEL_PASSWORD` empty and keep `OLLAMA_BASE_URL=http://localhost:11434`. Prompt Lab automatically runs without tunnel authentication headers when credentials are not configured.
+   > - **Security:** Never commit real tunnel credentials to Git or store them in public files. Configure them exclusively in the private Render Environment settings tab.
 
 *(Note: For local development, `OLLAMA_BASE_URL` defaults automatically to `http://localhost:11434`, so local testing continues without any tunnel.)*
 

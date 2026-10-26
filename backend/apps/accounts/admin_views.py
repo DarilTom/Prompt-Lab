@@ -11,7 +11,7 @@ from apps.accounts.permissions import IsAdminUser
 from apps.accounts.serializers import AdminUserSerializer
 from apps.evaluations.models import EvaluationRun
 from apps.executions.models import Execution
-from apps.executions.services import get_installed_models
+from apps.executions.services import get_installed_models, get_ollama_base_url
 from apps.prompts.models import Prompt
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,10 @@ class AdminOverviewStatsView(APIView):
         except Exception as exc:
             logger.warning("Failed to reach Ollama for admin overview: %s", exc)
             ollama_data["available"] = False
+            base_url = get_ollama_base_url()
             ollama_data["error"] = (
-                "Unable to connect to Ollama runtime at http://localhost:11434. "
-                "Ensure the Ollama daemon is running."
+                f"Unable to connect to Ollama runtime at {base_url}. "
+                "Ensure the Ollama daemon or tunnel is running."
             )
 
         return Response(

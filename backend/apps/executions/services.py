@@ -1,23 +1,356 @@
+import base64
 import os
 import re
+from urllib.parse import urlsplit
 import requests
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 
-OLLAMA_BASE_URL = getattr(
-    settings,
-    "OLLAMA_BASE_URL",
-    os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-).rstrip("/")
+class OllamaConfigurationError(ImproperlyConfigured, ValueError):
+    """
+    Raised when Ollama configuration (e.g. tunnel credentials) is invalid or incomplete.
+    Inherits from both ImproperlyConfigured and ValueError for flexible exception handling.
+    """
+    pass
 
+
+def get_raw_ollama_base_url():
+    """
+    Returns the raw configured Ollama base URL string without validation.
+    """
+    raw = getattr(
+        settings,
+        "OLLAMA_BASE_URL",
+        os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    )
+    return str(raw or "").strip().rstrip("/")
+
+
+def validate_ollama_base_url(url=None, has_credentials=None):
+    """
+    Validates and normalizes an Ollama base URL:
+    - Must be a non-empty string.
+    - Must use 'http' or 'https' scheme.
+    - Must specify a valid host/domain (netloc).
+    - Must NOT contain embedded credentials (user:password@host).
+    - MUST use 'https' whenever HTTP Basic Auth tunnel credentials are configured.
+    Returns the normalized base URL with trailing slashes stripped.
+    Raises OllamaConfigurationError (inheriting from ImproperlyConfigured) on any violation.
+    """
+    target = url if url is not None else get_raw_ollama_base_url()
+    if not target or not str(target).strip():
+        raise OllamaConfigurationError(
+            "OLLAMA_BASE_URL cannot be empty. Must be a valid HTTP or HTTPS URL."
+        )
+
+    clean_target = str(target).strip()
+    parsed = urlsplit(clean_target)
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        raise OllamaConfigurationError(
+            f"Invalid OLLAMA_BASE_URL '{clean_target}': unsupported scheme '{scheme}'. Must be 'http' or 'https'."
+        )
+
+    if not parsed.netloc:
+        raise OllamaConfigurationError(
+            f"Invalid OLLAMA_BASE_URL '{clean_target}': missing host or domain."
+        )
+
+    # Reject URLs containing embedded credentials (e.g., http://user:pass@host)
+    if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
+        raise OllamaConfigurationError(
+            "OLLAMA_BASE_URL must not contain embedded credentials in the URL. "
+            "Use OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD instead."
+        )
+
+    # Determine whether credentials apply
+    if has_credentials is None:
+        try:
+            creds = get_ollama_tunnel_credentials()
+            has_credentials = bool(creds)
+        except ImproperlyConfigured:
+            has_credentials = True
+
+    # Enforce HTTPS whenever tunnel credentials are configured
+    if has_credentials and scheme != "https":
+        raise OllamaConfigurationError(
+            "Ollama tunnel credentials require an HTTPS base URL to prevent plaintext credential "
+            f"transmission over unencrypted HTTP. Configured scheme was '{scheme}'."
+        )
+
+    normalized = f"{scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+    return normalized
+
+
+def get_ollama_base_url(validate=True):
+    """
+    Returns the configured Ollama base URL, stripping any trailing slash.
+    Defaults to http://localhost:11434.
+    """
+    if validate:
+        return validate_ollama_base_url()
+    return get_raw_ollama_base_url()
+
+
+def get_ollama_request_timeout():
+    """
+    Returns the configured Ollama request timeout in seconds.
+    Defaults to 600 seconds.
+    """
+    return getattr(
+        settings,
+        "OLLAMA_REQUEST_TIMEOUT",
+        600,
+    )
+
+
+def get_ollama_tunnel_credentials():
+    """
+    Retrieves and validates optional Ollama tunnel credentials from settings or environment.
+    Returns a tuple of (username, password) if both are set, or None if neither is set.
+    Raises OllamaConfigurationError if only one of the two credentials is set.
+    """
+    username = getattr(settings, "OLLAMA_TUNNEL_USERNAME", None)
+    if username is None:
+        username = os.getenv("OLLAMA_TUNNEL_USERNAME", "")
+    username = str(username or "").strip()
+
+    password = getattr(settings, "OLLAMA_TUNNEL_PASSWORD", None)
+    if password is None:
+        password = os.getenv("OLLAMA_TUNNEL_PASSWORD", "")
+    password = str(password or "").strip()
+
+    if bool(username) != bool(password):
+        raise OllamaConfigurationError(
+            "Both OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD must be configured together for "
+            "Ollama tunnel authentication. Only one credential was provided."
+        )
+
+    if username and password:
+        return username, password
+
+    return None
+
+
+def get_ollama_headers(additional_headers=None, username=None, password=None, base_url=None):
+    """
+    Constructs HTTP headers for Ollama API requests.
+    If tunnel credentials exist, validates that the destination uses HTTPS and
+    attaches HTTP Basic Authentication and ngrok headers.
+    Preserves clean local development behavior without adding Authorization
+    when tunnel credentials are not set.
+    """
+    headers = {}
+    creds_active = False
+    u = None
+    p = None
+
+    if username is not None or password is not None:
+        u = str(username or "").strip()
+        p = str(password or "").strip()
+        if bool(u) != bool(p):
+            raise OllamaConfigurationError(
+                "Both OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD must be configured together for "
+                "Ollama tunnel authentication. Only one credential was provided."
+            )
+        if u and p:
+            creds_active = True
+    else:
+        creds = get_ollama_tunnel_credentials()
+        if creds:
+            u, p = creds
+            creds_active = True
+
+    if creds_active:
+        # Enforce that credentials are never sent to unencrypted HTTP endpoints
+        target_url = base_url if base_url is not None else get_raw_ollama_base_url()
+        validate_ollama_base_url(target_url, has_credentials=True)
+
+        token = base64.b64encode(f"{u}:{p}".encode("utf-8")).decode("utf-8")
+        headers["Authorization"] = f"Basic {token}"
+        headers["ngrok-skip-browser-warning"] = "true"
+
+    if additional_headers:
+        headers.update(additional_headers)
+
+    return headers
+
+
+OLLAMA_BASE_URL = get_ollama_base_url(validate=False)
 OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
 OLLAMA_TAGS_URL = f"{OLLAMA_BASE_URL}/api/tags"
+OLLAMA_REQUEST_TIMEOUT = get_ollama_request_timeout()
 
-OLLAMA_REQUEST_TIMEOUT = getattr(
-    settings,
-    "OLLAMA_REQUEST_TIMEOUT",
-    600,
-)
+
+class OllamaClient:
+    """
+    Configurable HTTP client for interacting with Ollama instances.
+    Provides methods for listing models and running chat completions,
+    automatically attaching the configured base URL, request timeouts,
+    and HTTP Basic Authentication headers when tunnel credentials are set.
+    """
+
+    def __init__(self, base_url=None, username=None, password=None, timeout=None):
+        self._base_url = base_url
+        self._username = username
+        self._password = password
+        self._timeout = timeout
+
+    @property
+    def base_url(self):
+        has_creds = False
+        if self._username is not None or self._password is not None:
+            has_creds = bool(str(self._username or "").strip() or str(self._password or "").strip())
+        else:
+            try:
+                has_creds = bool(get_ollama_tunnel_credentials())
+            except ImproperlyConfigured:
+                has_creds = True
+        return validate_ollama_base_url(self._base_url, has_credentials=has_creds)
+
+    @property
+    def chat_url(self):
+        return f"{self.base_url}/api/chat"
+
+    @property
+    def tags_url(self):
+        return f"{self.base_url}/api/tags"
+
+    @property
+    def timeout(self):
+        if self._timeout is not None:
+            return self._timeout
+        return get_ollama_request_timeout()
+
+    def get_headers(self, additional_headers=None):
+        return get_ollama_headers(
+            additional_headers=additional_headers,
+            username=self._username,
+            password=self._password,
+            base_url=self._base_url,
+        )
+
+    def get_installed_models(self, timeout=10):
+        url = self.tags_url
+        headers = self.get_headers()
+        response = requests.get(url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+
+        data = response.json()
+        raw_models = data.get("models", [])
+        if not isinstance(raw_models, list):
+            raw_models = []
+
+        parsed_models = []
+        for item in raw_models:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("model") or ""
+            if not name:
+                continue
+            details = item.get("details", {}) or {}
+            raw_size = item.get("size")
+            parsed_models.append(
+                {
+                    "name": name,
+                    "model": name,
+                    "family": details.get("family", "") or "",
+                    "parameter_size": details.get("parameter_size", "") or "",
+                    "size": raw_size if isinstance(raw_size, (int, float)) else None,
+                    "size_formatted": format_model_size(raw_size),
+                    "modified_at": item.get("modified_at", "") or "",
+                    "digest": item.get("digest", "") or "",
+                }
+            )
+
+        return parsed_models
+
+    def chat(
+        self,
+        model,
+        messages,
+        stream=False,
+        think=None,
+        timeout=None,
+    ):
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": stream,
+        }
+
+        if think is not None:
+            payload["think"] = think
+
+        req_timeout = timeout if timeout is not None else self.timeout
+        headers = self.get_headers()
+
+        kwargs = {
+            "json": payload,
+            "headers": headers,
+            "timeout": req_timeout,
+        }
+        if stream:
+            kwargs["stream"] = True
+
+        response = requests.post(
+            self.chat_url,
+            **kwargs,
+        )
+
+        response.raise_for_status()
+
+        if stream:
+            return response
+
+        return response.json()
+
+    def run_chat(
+        self,
+        model,
+        user_prompt,
+        system_prompt="",
+        think=None,
+        timeout=None,
+        stream=False,
+    ):
+        messages = []
+        if system_prompt and system_prompt.strip():
+            messages.append(
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                }
+            )
+
+        messages.append(
+            {
+                "role": "user",
+                "content": user_prompt,
+            }
+        )
+
+        return self.chat(
+            model=model,
+            messages=messages,
+            stream=stream,
+            think=think,
+            timeout=timeout,
+        )
+
+
+def get_ollama_client(base_url=None, username=None, password=None, timeout=None):
+    """
+    Factory helper to instantiate an OllamaClient with optional custom parameters.
+    """
+    return OllamaClient(
+        base_url=base_url,
+        username=username,
+        password=password,
+        timeout=timeout,
+    )
 
 
 def format_model_size(size_bytes):
@@ -38,7 +371,7 @@ def format_model_size(size_bytes):
 
 def get_installed_models():
     """
-    Queries local Ollama GET /api/tags to retrieve locally installed models.
+    Queries Ollama GET /api/tags to retrieve locally or remotely installed models.
     Returns a list of dicts with:
       - name: exact model name/tag
       - model: exact model name/tag
@@ -49,37 +382,8 @@ def get_installed_models():
       - modified_at: modification timestamp
       - digest: model digest
     """
-    response = requests.get(OLLAMA_TAGS_URL, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
-    raw_models = data.get("models", [])
-    if not isinstance(raw_models, list):
-        raw_models = []
-
-    parsed_models = []
-    for item in raw_models:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name") or item.get("model") or ""
-        if not name:
-            continue
-        details = item.get("details", {}) or {}
-        raw_size = item.get("size")
-        parsed_models.append(
-            {
-                "name": name,
-                "model": name,
-                "family": details.get("family", "") or "",
-                "parameter_size": details.get("parameter_size", "") or "",
-                "size": raw_size if isinstance(raw_size, (int, float)) else None,
-                "size_formatted": format_model_size(raw_size),
-                "modified_at": item.get("modified_at", "") or "",
-                "digest": item.get("digest", "") or "",
-            }
-        )
-
-    return parsed_models
+    client = OllamaClient()
+    return client.get_installed_models()
 
 
 def get_installed_model_names():
@@ -156,43 +460,14 @@ def run_ollama(
     think=None,
     timeout=None,
 ):
-    messages = []
-
-    if system_prompt.strip():
-        messages.append(
-            {
-                "role": "system",
-                "content": system_prompt,
-            }
-        )
-
-    messages.append(
-        {
-            "role": "user",
-            "content": user_prompt,
-        }
+    client = OllamaClient()
+    return client.run_chat(
+        model=model,
+        user_prompt=user_prompt,
+        system_prompt=system_prompt,
+        think=think,
+        timeout=timeout,
     )
-
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-    }
-
-    if think is not None:
-        payload["think"] = think
-
-    req_timeout = timeout if timeout is not None else OLLAMA_REQUEST_TIMEOUT
-
-    response = requests.post(
-        OLLAMA_CHAT_URL,
-        json=payload,
-        timeout=req_timeout,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
 
 
 COMPARISON_JUDGE_SYSTEM_PROMPT = """You are an objective expert evaluator comparing two LLM prompt execution outputs.

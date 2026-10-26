@@ -15,6 +15,7 @@ from .services import (
     compare_and_recommend,
     compose_prompt,
     get_installed_models,
+    get_ollama_base_url,
     run_ollama,
     validate_model_installed,
 )
@@ -28,11 +29,12 @@ class OllamaModelListView(APIView):
             models = get_installed_models()
             return Response({"models": models}, status=status.HTTP_200_OK)
         except requests.exceptions.ConnectionError:
+            base_url = get_ollama_base_url()
             return Response(
                 {
                     "detail": (
-                        "Unable to connect to Ollama. Please ensure the "
-                        "Ollama service is running locally at http://localhost:11434."
+                        f"Unable to connect to Ollama. Please ensure the "
+                        f"Ollama service is reachable at {base_url}."
                     ),
                     "error": "connection_error",
                     "models": [],
@@ -223,9 +225,10 @@ class ExecutionListCreateView(generics.ListCreateAPIView):
 
         except requests.exceptions.ConnectionError as exc:
             execution.status = "failed"
+            base_url = get_ollama_base_url()
             error_msg = (
-                "Unable to connect to Ollama at http://localhost:11434. "
-                "Please ensure the Ollama service is running locally."
+                f"Unable to connect to Ollama at {base_url}. "
+                "Please ensure the Ollama service is reachable."
             )
             execution.error_message = error_msg
             execution.save(update_fields=["status", "error_message"])
@@ -408,11 +411,12 @@ class ExecutionCompareRecommendView(APIView):
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except requests.exceptions.ConnectionError as exc:
+            base_url = get_ollama_base_url()
             return Response(
                 {
                     "detail": (
-                        "Unable to connect to Ollama service at http://localhost:11434. "
-                        "Please ensure the Ollama service is running locally."
+                        f"Unable to connect to Ollama service at {base_url}. "
+                        "Please ensure the Ollama service is reachable."
                     ),
                     "error": str(exc),
                 },

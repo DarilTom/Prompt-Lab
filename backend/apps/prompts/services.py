@@ -3,7 +3,7 @@ import logging
 import re
 import requests
 
-from apps.executions.services import run_ollama
+from apps.executions.services import get_ollama_base_url, run_ollama
 
 logger = logging.getLogger(__name__)
 
@@ -149,9 +149,10 @@ def generate_improved_prompt(
             **run_kwargs,
         )
     except requests.exceptions.ConnectionError:
+        base_url = get_ollama_base_url()
         raise ConnectionError(
-            "Unable to connect to Ollama at http://localhost:11434. "
-            "Please ensure the Ollama service is running locally."
+            f"Unable to connect to Ollama at {base_url}. "
+            "Please ensure the Ollama service is reachable."
         )
     except requests.exceptions.Timeout:
         raise TimeoutError(
