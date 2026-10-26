@@ -275,12 +275,16 @@ class OllamaClient:
         think=None,
         timeout=None,
         options=None,
+        format=None,
     ):
         payload = {
             "model": model,
             "messages": messages,
             "stream": stream,
         }
+
+        if format is not None:
+            payload["format"] = format
 
         if think is not None:
             payload["think"] = think
@@ -320,6 +324,7 @@ class OllamaClient:
         timeout=None,
         stream=False,
         options=None,
+        format=None,
     ):
         messages = []
         if system_prompt and system_prompt.strip():
@@ -344,6 +349,7 @@ class OllamaClient:
             think=think,
             timeout=timeout,
             options=options,
+            format=format,
         )
 
 
@@ -466,6 +472,7 @@ def run_ollama(
     think=None,
     timeout=None,
     options=None,
+    format=None,
 ):
     client = OllamaClient()
     return client.run_chat(
@@ -475,6 +482,7 @@ def run_ollama(
         think=think,
         timeout=timeout,
         options=options,
+        format=format,
     )
 
 

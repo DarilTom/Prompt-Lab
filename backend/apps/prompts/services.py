@@ -148,6 +148,7 @@ def generate_improved_prompt(
     }
     run_kwargs = {
         "options": improver_options,
+        "format": "json",
     }
     if "qwen" in clean_model.lower():
         run_kwargs["think"] = False

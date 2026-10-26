@@ -168,6 +168,27 @@ class PromptImproverServiceTests(TestCase):
             call_kwargs["options"],
             {"num_predict": 512, "temperature": 0.2},
         )
+        self.assertEqual(call_kwargs.get("format"), "json")
+
+    @patch("apps.prompts.services.run_ollama")
+    def test_improve_prompt_sends_json_format(self, mock_run_ollama):
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": '{"improved_prompt": "JSON constrained prompt", "explanation": "Strict format."}'
+            }
+        }
+
+        generate_improved_prompt(
+            prompt_text="Help write an essay",
+            model="qwen3:4b",
+        )
+
+        call_kwargs = mock_run_ollama.call_args.kwargs
+        self.assertEqual(call_kwargs.get("format"), "json")
+        self.assertEqual(
+            call_kwargs.get("options"),
+            {"num_predict": 512, "temperature": 0.2},
+        )
 
     @patch("apps.prompts.services.run_ollama")
     def test_improve_prompt_disables_thinking_for_qwen(self, mock_run_ollama):
@@ -189,6 +210,7 @@ class PromptImproverServiceTests(TestCase):
             mock_run_ollama.call_args.kwargs.get("options"),
             {"num_predict": 512, "temperature": 0.2},
         )
+        self.assertEqual(mock_run_ollama.call_args.kwargs.get("format"), "json")
 
     @patch("apps.prompts.services.run_ollama")
     def test_improve_prompt_preserves_default_for_non_qwen(self, mock_run_ollama):

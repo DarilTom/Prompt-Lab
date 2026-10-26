@@ -351,3 +351,53 @@ class OllamaConnectivityAndTunnelAuthTests(SimpleTestCase):
         called_json = mock_post.call_args.kwargs.get("json", {})
         self.assertNotIn("options", called_json)
         self.assertEqual(result["message"]["content"], "Default response")
+
+    @override_settings(
+        OLLAMA_BASE_URL="http://localhost:11434",
+        OLLAMA_TUNNEL_USERNAME="",
+        OLLAMA_TUNNEL_PASSWORD="",
+    )
+    @patch("apps.executions.services.requests.post")
+    def test_run_ollama_passes_format_when_provided(self, mock_post):
+        """Passing format to run_ollama includes format string at the top level of the request payload."""
+        mock_response = mock_post.return_value
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "message": {"role": "assistant", "content": '{"result": "ok"}'}
+        }
+
+        result = run_ollama(
+            "qwen3:4b",
+            "Generate JSON",
+            format="json",
+        )
+
+        mock_post.assert_called_once()
+        called_json = mock_post.call_args.kwargs.get("json", {})
+        self.assertIn("format", called_json)
+        self.assertEqual(called_json["format"], "json")
+        # Ensure format is not nested in options
+        if "options" in called_json:
+            self.assertNotIn("format", called_json["options"])
+        self.assertEqual(result["message"]["content"], '{"result": "ok"}')
+
+    @override_settings(
+        OLLAMA_BASE_URL="http://localhost:11434",
+        OLLAMA_TUNNEL_USERNAME="",
+        OLLAMA_TUNNEL_PASSWORD="",
+    )
+    @patch("apps.executions.services.requests.post")
+    def test_run_ollama_omits_format_when_none(self, mock_post):
+        """When format is not provided, format key is omitted from request payload."""
+        mock_response = mock_post.return_value
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "message": {"role": "assistant", "content": "Default response"}
+        }
+
+        result = run_ollama("llama3.2:1b", "Default prompt")
+
+        mock_post.assert_called_once()
+        called_json = mock_post.call_args.kwargs.get("json", {})
+        self.assertNotIn("format", called_json)
+        self.assertEqual(result["message"]["content"], "Default response")
