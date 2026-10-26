@@ -26,6 +26,11 @@ Do NOT wrap the JSON in markdown code blocks. Output raw JSON only.
 """
 
 
+class InvalidModelOutputError(ValueError):
+    """Raised when the model returns an invalid, unparseable, or truncated response."""
+    pass
+
+
 def _extract_json(text):
     if not isinstance(text, str):
         return None
@@ -137,7 +142,13 @@ def generate_improved_prompt(
 
     user_content += "\nPlease generate an improved, production-ready version of this prompt."
 
-    run_kwargs = {}
+    improver_options = {
+        "num_predict": 512,
+        "temperature": 0.2,
+    }
+    run_kwargs = {
+        "options": improver_options,
+    }
     if "qwen" in clean_model.lower():
         run_kwargs["think"] = False
 
@@ -192,12 +203,6 @@ def generate_improved_prompt(
                     "model": clean_model,
                 }
 
-    # Fallback if model didn't follow JSON format:
-    cleaned_content = re.sub(r"^```[a-z]*\n?", "", cleaned_message or message_content)
-    cleaned_content = re.sub(r"\n?```$", "", cleaned_content).strip()
-
-    return {
-        "improved_prompt": cleaned_content or clean_prompt,
-        "explanation": "Refined the prompt for improved clarity and specificity.",
-        "model": clean_model,
-    }
+    raise InvalidModelOutputError(
+        "Model returned invalid or truncated response. Could not extract improved prompt."
+    )

@@ -304,3 +304,50 @@ class OllamaConnectivityAndTunnelAuthTests(SimpleTestCase):
         self.assertNotIn("Authorization", called_headers)
         self.assertIs(called_json["think"], False)
         self.assertEqual(result["message"]["content"], "Local response")
+
+    @override_settings(
+        OLLAMA_BASE_URL="http://localhost:11434",
+        OLLAMA_TUNNEL_USERNAME="",
+        OLLAMA_TUNNEL_PASSWORD="",
+    )
+    @patch("apps.executions.services.requests.post")
+    def test_run_ollama_passes_options_when_provided(self, mock_post):
+        """Passing options to run_ollama includes options dictionary in request payload."""
+        mock_response = mock_post.return_value
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "message": {"role": "assistant", "content": "Options response"}
+        }
+
+        result = run_ollama(
+            "qwen3:4b",
+            "Generate text",
+            options={"num_predict": 512, "temperature": 0.2},
+        )
+
+        mock_post.assert_called_once()
+        called_json = mock_post.call_args.kwargs.get("json", {})
+        self.assertIn("options", called_json)
+        self.assertEqual(called_json["options"], {"num_predict": 512, "temperature": 0.2})
+        self.assertEqual(result["message"]["content"], "Options response")
+
+    @override_settings(
+        OLLAMA_BASE_URL="http://localhost:11434",
+        OLLAMA_TUNNEL_USERNAME="",
+        OLLAMA_TUNNEL_PASSWORD="",
+    )
+    @patch("apps.executions.services.requests.post")
+    def test_run_ollama_omits_options_when_none(self, mock_post):
+        """When options are not provided, options key is omitted from request payload."""
+        mock_response = mock_post.return_value
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "message": {"role": "assistant", "content": "Default response"}
+        }
+
+        result = run_ollama("llama3.2:1b", "Default prompt")
+
+        mock_post.assert_called_once()
+        called_json = mock_post.call_args.kwargs.get("json", {})
+        self.assertNotIn("options", called_json)
+        self.assertEqual(result["message"]["content"], "Default response")

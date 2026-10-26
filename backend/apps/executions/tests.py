@@ -67,6 +67,34 @@ class RunOllamaServiceTests(TestCase):
         run_ollama("gemma3:4b", "test prompt")
         self.assertNotIn("think", mock_post.call_args.kwargs["json"])
 
+    @patch("apps.executions.services.requests.post")
+    def test_run_ollama_passes_options_parameter_when_provided(self, mock_post):
+        mock_response = mock_post.return_value
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"message": {"content": "ok"}}
+        from .services import run_ollama
+
+        run_ollama(
+            "qwen3:4b",
+            "test prompt",
+            options={"num_predict": 512, "temperature": 0.2},
+        )
+        self.assertIn("options", mock_post.call_args.kwargs["json"])
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["options"],
+            {"num_predict": 512, "temperature": 0.2},
+        )
+
+    @patch("apps.executions.services.requests.post")
+    def test_run_ollama_omits_options_parameter_by_default(self, mock_post):
+        mock_response = mock_post.return_value
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"message": {"content": "ok"}}
+        from .services import run_ollama
+
+        run_ollama("gemma3:4b", "test prompt")
+        self.assertNotIn("options", mock_post.call_args.kwargs["json"])
+
 
 class ExecutionVersionSelectionTests(TestCase):
     def setUp(self):

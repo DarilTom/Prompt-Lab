@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 from apps.evaluations.models import EvaluationDataset, TestCase as EvalTestCase
 from apps.executions.models import Execution
 from .models import Prompt, PromptVersion
-from .services import generate_improved_prompt
+from .services import InvalidModelOutputError, generate_improved_prompt
 
 User = get_user_model()
 
@@ -150,6 +150,26 @@ class PromptImproverServiceTests(TestCase):
         self.assertIn("Friendly, Empathetic", call_kwargs["user_prompt"])
 
     @patch("apps.prompts.services.run_ollama")
+    def test_improve_prompt_sends_generation_options(self, mock_run_ollama):
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": '{"improved_prompt": "Clean prompt", "explanation": "Added constraints."}'
+            }
+        }
+
+        generate_improved_prompt(
+            prompt_text="Help write an essay",
+            model="llama3.2:1b",
+        )
+
+        call_kwargs = mock_run_ollama.call_args.kwargs
+        self.assertIn("options", call_kwargs)
+        self.assertEqual(
+            call_kwargs["options"],
+            {"num_predict": 512, "temperature": 0.2},
+        )
+
+    @patch("apps.prompts.services.run_ollama")
     def test_improve_prompt_disables_thinking_for_qwen(self, mock_run_ollama):
         mock_run_ollama.return_value = {
             "message": {
@@ -165,6 +185,10 @@ class PromptImproverServiceTests(TestCase):
         self.assertEqual(result["improved_prompt"], "Qwen improved prompt")
         self.assertEqual(result["model"], "qwen3:4b")
         self.assertIs(mock_run_ollama.call_args.kwargs.get("think"), False)
+        self.assertEqual(
+            mock_run_ollama.call_args.kwargs.get("options"),
+            {"num_predict": 512, "temperature": 0.2},
+        )
 
     @patch("apps.prompts.services.run_ollama")
     def test_improve_prompt_preserves_default_for_non_qwen(self, mock_run_ollama):
@@ -182,6 +206,10 @@ class PromptImproverServiceTests(TestCase):
         self.assertEqual(result["improved_prompt"], "Gemma prompt")
         self.assertEqual(result["model"], "gemma3:4b")
         self.assertNotIn("think", mock_run_ollama.call_args.kwargs)
+        self.assertEqual(
+            mock_run_ollama.call_args.kwargs.get("options"),
+            {"num_predict": 512, "temperature": 0.2},
+        )
 
     @patch("apps.prompts.services.run_ollama")
     def test_improve_prompt_strips_think_tags(self, mock_run_ollama):
@@ -198,6 +226,36 @@ class PromptImproverServiceTests(TestCase):
 
         self.assertEqual(result["improved_prompt"], "Cleaned prompt")
         self.assertEqual(result["explanation"], "Added constraints.")
+
+    @patch("apps.prompts.services.run_ollama")
+    def test_improve_prompt_truncated_json_raises_invalid_model_output_error(self, mock_run_ollama):
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": '{"improved_prompt": "This is a cut off truncated response without closing braces'
+            }
+        }
+
+        with self.assertRaises(InvalidModelOutputError) as ctx:
+            generate_improved_prompt(
+                prompt_text="Help write an essay",
+                model="qwen3:4b",
+            )
+        self.assertIn("invalid or truncated", str(ctx.exception))
+
+    @patch("apps.prompts.services.run_ollama")
+    def test_improve_prompt_non_json_raises_invalid_model_output_error(self, mock_run_ollama):
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": "I am not returning JSON here, just plain text."
+            }
+        }
+
+        with self.assertRaises(InvalidModelOutputError) as ctx:
+            generate_improved_prompt(
+                prompt_text="Help write an essay",
+                model="gemma3:4b",
+            )
+        self.assertIn("invalid or truncated", str(ctx.exception))
 
 
 class PromptImproveAPITests(TestCase):
@@ -291,6 +349,37 @@ class PromptImproveAPITests(TestCase):
         self.assertEqual(response.data["model"], "mistral:7b")
         mock_run_ollama.assert_called_once()
         self.assertEqual(mock_run_ollama.call_args.kwargs["model"], "mistral:7b")
+
+    @patch("apps.prompts.services.run_ollama")
+    @patch("apps.executions.services.get_installed_models")
+    def test_prompt_improve_handles_truncated_output_gracefully(self, mock_get_models, mock_run_ollama):
+        mock_get_models.return_value = [{"name": "qwen3:4b", "model": "qwen3:4b"}]
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": '{"improved_prompt": "Truncated json without closing brace...'
+            }
+        }
+        response = self.client.post(
+            self.url,
+            {"prompt_text": "Write tests", "model": "qwen3:4b"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("detail", response.data)
+        self.assertIn("invalid or incomplete response", response.data["detail"])
+
+    @patch("apps.prompts.views.generate_improved_prompt")
+    @patch("apps.executions.services.get_installed_models")
+    def test_prompt_improve_generic_value_error_returns_500(self, mock_get_models, mock_generate):
+        mock_get_models.return_value = [{"name": "gemma3:4b", "model": "gemma3:4b"}]
+        mock_generate.side_effect = ValueError("Some internal conversion error")
+        response = self.client.post(
+            self.url,
+            {"prompt_text": "Write tests", "model": "gemma3:4b"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn("Unable to improve prompt", response.data["detail"])
 
 
 class PromptCreationAndStatusTests(TestCase):

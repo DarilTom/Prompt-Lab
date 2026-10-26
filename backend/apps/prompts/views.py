@@ -17,7 +17,7 @@ from .serializers import (
     PromptVersionSerializer,
 )
 from apps.executions.services import validate_model_installed
-from .services import generate_improved_prompt
+from .services import InvalidModelOutputError, generate_improved_prompt
 
 
 class PromptListCreateView(generics.ListCreateAPIView):
@@ -231,6 +231,11 @@ class PromptImproveView(APIView):
                 model=model,
             )
             return Response(result, status=status.HTTP_200_OK)
+        except InvalidModelOutputError:
+            return Response(
+                {"detail": "The model returned an invalid or incomplete response. Please try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         except (ConnectionError, TimeoutError) as e:
             return Response(
                 {"detail": str(e)},
