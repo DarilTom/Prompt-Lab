@@ -50,7 +50,7 @@ Before proceeding in the dashboards:
 2. Click **Create Project**:
    - **Project name:** `prompt-lab` (or your preferred name)
    - **Postgres version:** `16` (or latest recommended)
-   - **Region:** Choose the region closest to your Render services (e.g., `US East (Ohio)` or `Frankfurt`).
+   - **Region:** Select **Asia Pacific (Singapore)** (`ap-southeast-1`) to colocate with your Render backend service in Singapore for minimal database latency.
 3. Once the database is created, navigate to the **Dashboard** tab.
 4. Locate the **Connection Details** card:
    - Select **Pooled connection** (recommended for serverless web applications to handle connection bursts).
@@ -90,6 +90,7 @@ If you prefer configuring services manually in Render rather than using Blueprin
 ### Backend Service (Web Service)
 - **Type:** Web Service
 - **Name:** `prompt-lab-backend`
+- **Region:** `Singapore` (matches your Neon database region)
 - **Root Directory:** `backend`
 - **Runtime:** `Python 3`
 - **Build Command:** `bash build.sh`
