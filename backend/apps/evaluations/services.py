@@ -1,10 +1,17 @@
 import json
+import logging
 import re
+import threading
 from decimal import Decimal
+
+from django.db import close_old_connections
+from django.utils import timezone
 
 from apps.executions.models import Execution
 from apps.executions.services import compose_prompt, run_ollama
-from .models import EvaluationResult
+from .models import EvaluationResult, EvaluationRun
+
+logger = logging.getLogger(__name__)
 
 JUDGE_SYSTEM_PROMPT = """
 You are an objective evaluator for an LLM prompt-testing platform.
@@ -276,7 +283,7 @@ def run_evaluation(evaluation_run):
     scores = []
     has_error = False
 
-    for test_case in test_cases:
+    for idx, test_case in enumerate(test_cases):
 
         execution = Execution.objects.create(
             owner=evaluation_run.owner,
@@ -394,6 +401,16 @@ def run_evaluation(evaluation_run):
                 feedback=str(exc),
             )
 
+        # Update running progress counts incrementally
+        evaluation_run.passed_cases = passed_cases
+        evaluation_run.failed_cases = (idx + 1) - passed_cases
+        evaluation_run.save(
+            update_fields=[
+                "passed_cases",
+                "failed_cases",
+            ]
+        )
+
     evaluation_run.total_cases = len(test_cases)
     evaluation_run.passed_cases = passed_cases
 
@@ -428,3 +445,80 @@ def run_evaluation(evaluation_run):
     )
 
     return has_error
+
+
+def execute_evaluation_run(evaluation_run_id):
+    """
+    Worker task that safely executes an EvaluationRun by ID.
+    Reloads the run from the database, runs test cases, and updates
+    status upon completion or failure.
+    """
+    try:
+        evaluation_run = (
+            EvaluationRun.objects.select_related("prompt", "prompt_version", "dataset")
+            .prefetch_related("dataset__test_cases")
+            .get(pk=evaluation_run_id)
+        )
+
+        # Do not run the same evaluation twice if already finished
+        if evaluation_run.status in (
+            EvaluationRun.Status.COMPLETED,
+            EvaluationRun.Status.FAILED,
+        ):
+            return
+
+        evaluation_run.status = EvaluationRun.Status.RUNNING
+        evaluation_run.save(update_fields=["status"])
+
+        has_error = run_evaluation(evaluation_run)
+
+        evaluation_run.completed_at = timezone.now()
+        evaluation_run.status = (
+            EvaluationRun.Status.FAILED
+            if has_error
+            else EvaluationRun.Status.COMPLETED
+        )
+        evaluation_run.save()
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected error executing evaluation run %s", evaluation_run_id
+        )
+        try:
+            EvaluationRun.objects.filter(pk=evaluation_run_id).update(
+                status=EvaluationRun.Status.FAILED,
+                error_message="Evaluation failed due to an unexpected processing error. Please try again.",
+                completed_at=timezone.now(),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to update status for failed evaluation run %s",
+                evaluation_run_id,
+            )
+
+
+def _background_worker(evaluation_run_id):
+    """
+    Background thread entrypoint that wraps execute_evaluation_run
+    with thread-boundary close_old_connections() calls.
+    """
+    try:
+        close_old_connections()
+        execute_evaluation_run(evaluation_run_id)
+    finally:
+        close_old_connections()
+
+
+def start_evaluation_run_background(evaluation_run_id):
+    """
+    Spawns a daemon thread to run the evaluation asynchronously.
+    Returns the started Thread instance.
+    """
+    thread = threading.Thread(
+        target=_background_worker,
+        args=(evaluation_run_id,),
+        daemon=True,
+        name=f"evaluation-run-{evaluation_run_id}",
+    )
+    thread.start()
+    return thread

@@ -88,8 +88,8 @@ export async function getEvaluationRuns() {
   return apiRequest("/evaluations/runs/");
 }
 
-export async function getEvaluationRun(runId) {
-  return apiRequest(`/evaluations/runs/${runId}/`);
+export async function getEvaluationRun(runId, options = {}) {
+  return apiRequest(`/evaluations/runs/${runId}/`, options);
 }
 
 export async function getPromptsForEvaluation() {
@@ -113,4 +113,71 @@ export async function createEvaluationRun({
       model,
     }),
   });
+}
+
+/**
+ * Polls an evaluation run every intervalMs until it reaches a terminal status
+ * ('completed' or 'failed') or until the abort signal is triggered.
+ */
+export async function pollEvaluationRun(runId, options = {}) {
+  const {
+    intervalMs = 2500,
+    maxAttempts = 240,
+    onProgress,
+    signal,
+  } = options;
+
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    if (signal?.aborted) {
+      const abortError = new Error("Evaluation polling aborted.");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
+
+    const run = await getEvaluationRun(runId, { signal });
+
+    if (onProgress && typeof onProgress === "function") {
+      onProgress(run);
+    }
+
+    if (run.status === "completed" || run.status === "failed") {
+      return run;
+    }
+
+    attempts += 1;
+
+    await new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        const abortError = new Error("Evaluation polling aborted.");
+        abortError.name = "AbortError";
+        reject(abortError);
+        return;
+      }
+
+      let onAbort;
+      const timer = setTimeout(() => {
+        if (signal && onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
+        resolve();
+      }, intervalMs);
+
+      if (signal) {
+        onAbort = () => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", onAbort);
+          const abortError = new Error("Evaluation polling aborted.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+  }
+
+  throw new Error(
+    "Evaluation timed out while waiting for background completion."
+  );
 }

@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -20,7 +21,7 @@ from .serializers import (
     EvaluationRunSerializer,
     TestCaseSerializer,
 )
-from .services import run_evaluation
+from .services import run_evaluation, start_evaluation_run_background
 
 
 # ============================================================
@@ -378,67 +379,29 @@ class EvaluationRunListCreateView(APIView):
             )
 
         # ----------------------------------------------------
-        # Create evaluation run
+        # Create evaluation run & start background processing
         # ----------------------------------------------------
 
-        evaluation_run = EvaluationRun.objects.create(
-            owner=request.user,
-            prompt=prompt_version.prompt,
-            prompt_version=prompt_version,
-            dataset=dataset,
-            model=model,
-            status="running",
-            total_cases=test_case_count,
-            passed_cases=0,
-            failed_cases=0,
-            started_at=timezone.now(),
-        )
-
-        # Lifecycle: Draft -> Testing on inclusion in an evaluation run
-        prompt_version.prompt.transition_to_testing_if_draft()
-
-        # ----------------------------------------------------
-        # Execute evaluation
-        # ----------------------------------------------------
-
-        try:
-            has_error = run_evaluation(
-                evaluation_run
+        with transaction.atomic():
+            evaluation_run = EvaluationRun.objects.create(
+                owner=request.user,
+                prompt=prompt_version.prompt,
+                prompt_version=prompt_version,
+                dataset=dataset,
+                model=model,
+                status=EvaluationRun.Status.RUNNING,
+                total_cases=test_case_count,
+                passed_cases=0,
+                failed_cases=0,
+                started_at=timezone.now(),
             )
 
-            evaluation_run.completed_at = timezone.now()
+            # Lifecycle: Draft -> Testing on inclusion in an evaluation run
+            prompt_version.prompt.transition_to_testing_if_draft()
 
-            evaluation_run.status = (
-                "failed"
-                if has_error
-                else "completed"
+            transaction.on_commit(
+                lambda: start_evaluation_run_background(evaluation_run.id)
             )
-
-            evaluation_run.save()
-
-        except Exception as exc:
-
-            evaluation_run.status = "failed"
-
-            evaluation_run.error_message = str(exc)
-
-            evaluation_run.completed_at = (
-                timezone.now()
-            )
-
-            evaluation_run.save(
-                update_fields=[
-                    "status",
-                    "error_message",
-                    "completed_at",
-                ]
-            )
-
-        # ----------------------------------------------------
-        # Return final result
-        # ----------------------------------------------------
-
-        evaluation_run.refresh_from_db()
 
         serializer = EvaluationRunSerializer(
             evaluation_run

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -6,6 +6,7 @@ import {
   getEvaluationDatasets,
   getPromptsForEvaluation,
   getPromptVersionsForEvaluation,
+  pollEvaluationRun,
 } from "../../services/evaluationService";
 import ModelSelector from "../../components/dashboard/ModelSelector";
 import { useInstalledModels } from "../../hooks/useInstalledModels";
@@ -355,6 +356,16 @@ export default function RepeatEvaluation() {
     });
   }, [runs]);
 
+  const abortControllerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   async function handleRunRepeats(event) {
     event.preventDefault();
 
@@ -366,22 +377,39 @@ export default function RepeatEvaluation() {
       setRuns([]);
       setCurrentRepeat(0);
 
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
       const createdRuns = [];
 
       for (let index = 0; index < numericRepeatCount; index += 1) {
         setCurrentRepeat(index + 1);
 
-        const newRun = await createEvaluationRun({
-          prompt: Number(selectedPromptId),
+        const initialRun = await createEvaluationRun({
           prompt_version: Number(selectedVersionId),
           dataset: Number(selectedDatasetId),
           model,
         });
 
-        createdRuns.push(newRun);
+        let completedRun = initialRun;
+        if (
+          initialRun.status !== "completed" &&
+          initialRun.status !== "failed"
+        ) {
+          completedRun = await pollEvaluationRun(initialRun.id, {
+            signal: abortControllerRef.current.signal,
+          });
+        }
+
+        createdRuns.push(completedRun);
         setRuns([...createdRuns]);
       }
     } catch (err) {
+      if (err.name === "AbortError") {
+        return;
+      }
       console.error(err);
       setError(
         err.message ||

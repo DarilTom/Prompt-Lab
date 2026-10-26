@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -6,6 +6,7 @@ import {
   getEvaluationDatasets,
   getPromptsForEvaluation,
   getPromptVersionsForEvaluation,
+  pollEvaluationRun,
 } from "../../services/evaluationService";
 import ModelSelector from "../../components/dashboard/ModelSelector";
 import { useInstalledModels } from "../../hooks/useInstalledModels";
@@ -263,6 +264,17 @@ export default function RunEvaluation() {
     Number(selectedDataset.test_case_count || 0) >
       0;
 
+  const [progressStatus, setProgressStatus] = useState("");
+  const abortControllerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   async function handleRunEvaluation(event) {
     event.preventDefault();
 
@@ -274,28 +286,52 @@ export default function RunEvaluation() {
       setRunning(true);
       setError("");
       setResult(null);
+      setProgressStatus("Starting evaluation...");
 
-      const evaluationRun =
-        await createEvaluationRun({
-          prompt_version:
-            Number(selectedVersionId),
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
 
-          dataset:
-            Number(selectedDatasetId),
+      const initialRun = await createEvaluationRun({
+        prompt_version: Number(selectedVersionId),
+        dataset: Number(selectedDatasetId),
+        model: model.trim(),
+      });
 
-          model: model.trim(),
+      let finalRun = initialRun;
+      if (initialRun.status !== "completed" && initialRun.status !== "failed") {
+        const total = initialRun.total_cases || selectedDataset?.test_case_count || "";
+        setProgressStatus(
+          total ? `Evaluating test cases (0 of ${total})...` : "Evaluating test cases..."
+        );
+
+        finalRun = await pollEvaluationRun(initialRun.id, {
+          signal: abortControllerRef.current.signal,
+          onProgress: (inProgressRun) => {
+            const completedCount =
+              (inProgressRun.passed_cases || 0) + (inProgressRun.failed_cases || 0);
+            setProgressStatus(
+              `Evaluating test cases (${completedCount} of ${inProgressRun.total_cases})...`
+            );
+          },
         });
+      }
 
-      setResult(evaluationRun);
+      setResult(finalRun);
     } catch (err) {
+      if (err.name === "AbortError") {
+        return;
+      }
       console.error(err);
 
       setError(
         err.message ||
-          "Unable to start the evaluation."
+          "Unable to start or complete the evaluation."
       );
     } finally {
       setRunning(false);
+      setProgressStatus("");
     }
   }
 
@@ -516,7 +552,7 @@ export default function RunEvaluation() {
                 {running ? (
                   <>
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                    Running evaluation...
+                    {progressStatus || "Running evaluation..."}
                   </>
                 ) : (
                   <>
@@ -680,6 +716,12 @@ export default function RunEvaluation() {
                 {result.status}
               </span>
             </div>
+
+            {result.error_message && (
+              <div className="mt-4 rounded-control border border-error/30 bg-error/10 p-3 text-xs text-error">
+                {result.error_message}
+              </div>
+            )}
 
             <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-border bg-background p-4">

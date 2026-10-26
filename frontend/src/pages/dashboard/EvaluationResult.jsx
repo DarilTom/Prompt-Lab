@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { getEvaluationRun } from "../../services/evaluationService";
+import {
+  getEvaluationRun,
+  pollEvaluationRun,
+} from "../../services/evaluationService";
 
 function formatDuration(nanoseconds) {
   if (nanoseconds === null || nanoseconds === undefined) {
@@ -77,22 +80,54 @@ export default function EvaluationResult() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let isMounted = true;
+    const abortController = new AbortController();
+
     async function loadRun() {
       try {
         setLoading(true);
         setError("");
 
-        const data = await getEvaluationRun(id);
+        const data = await getEvaluationRun(id, {
+          signal: abortController.signal,
+        });
+        if (!isMounted) return;
         setRun(data);
+        setLoading(false);
+
+        // If run is still running or pending, poll until finished
+        if (data.status === "running" || data.status === "pending") {
+          const finalRun = await pollEvaluationRun(id, {
+            signal: abortController.signal,
+            onProgress: (updated) => {
+              if (isMounted) {
+                setRun(updated);
+              }
+            },
+          });
+          if (isMounted) {
+            setRun(finalRun);
+          }
+        }
       } catch (err) {
+        if (!isMounted || err.name === "AbortError") {
+          return;
+        }
         console.error(err);
         setError(err.message || "Unable to load evaluation run.");
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     loadRun();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [id]);
 
   if (loading) {
@@ -180,6 +215,19 @@ export default function EvaluationResult() {
             {run.status}
           </span>
         </div>
+
+        {run.error_message && (
+          <div className="mt-4 rounded-control border border-error/30 bg-error/10 p-3 text-xs text-error">
+            {run.error_message}
+          </div>
+        )}
+
+        {(run.status === "running" || run.status === "pending") && (
+          <div className="mt-4 rounded-control border border-brand/30 bg-brand/10 p-3 text-xs text-brand flex items-center gap-2">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand/40 border-t-brand" />
+            Evaluation is actively running in the background. Results will refresh automatically.
+          </div>
+        )}
 
         {/* Primary Metrics Grid */}
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
