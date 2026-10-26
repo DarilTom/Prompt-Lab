@@ -1,4 +1,4 @@
-import { apiRequest } from "./api";
+import { apiRequest, API_BASE_URL } from "./api";
 import {
   clearTokens,
   getAccessToken as readAccessToken,
@@ -64,7 +64,7 @@ export async function refreshAccessToken() {
   }
 
   const response = await fetch(
-    "http://127.0.0.1:8000/api/auth/token/refresh/",
+    `${API_BASE_URL}/auth/token/refresh/`,
     {
       method: "POST",
       headers: {

@@ -12,8 +12,10 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 from datetime import timedelta
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,13 +25,45 @@ load_dotenv(BASE_DIR / ".env")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
+# Detect hosted Render environment (Render sets RENDER=true or RENDER_EXTERNAL_HOSTNAME)
+is_render = (
+    os.getenv("RENDER", "").lower() in ("true", "1", "yes")
+    or bool(os.getenv("RENDER_EXTERNAL_HOSTNAME"))
+)
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("SECRET_KEY")
+secret_key_env = os.getenv("SECRET_KEY", "").strip()
+if is_render:
+    if not secret_key_env:
+        raise ImproperlyConfigured(
+            "The SECRET_KEY environment variable is required when running on Render."
+        )
+    SECRET_KEY = secret_key_env
+else:
+    # Preserve local development fallback (also supports local operations with DATABASE_URL)
+    SECRET_KEY = secret_key_env or "django-insecure-local-dev-key-change-in-production"
+
+# Detect hosted production environment (Render or external DATABASE_URL provided)
+is_production = is_render or bool(os.getenv("DATABASE_URL"))
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+default_debug = "False" if is_production else "True"
+DEBUG = os.getenv("DEBUG", default_debug).lower() in ("true", "1", "yes")
 
-ALLOWED_HOSTS = []
+# Allowed hosts configuration
+allowed_hosts_env = os.getenv("ALLOWED_HOSTS", "")
+ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_env.split(",") if h.strip()]
+
+# Automatically support Render external hostname when provided
+render_external_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+if render_external_hostname and render_external_hostname not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(render_external_hostname)
+
+# Always allow local development hosts when in DEBUG or if no hosts configured
+if DEBUG or not ALLOWED_HOSTS:
+    for local_host in ["localhost", "127.0.0.1", "[::1]"]:
+        if local_host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(local_host)
 
 
 # Application definition
@@ -54,6 +88,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     'django.middleware.common.CommonMiddleware',
@@ -85,17 +120,31 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
+# Reads DATABASE_URL with SSL mode enabled (for Neon / hosted PostgreSQL).
+# Falls back to local database settings when DATABASE_URL is not provided.
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME"),
+            "USER": os.getenv("DB_USER"),
+            "PASSWORD": os.getenv("DB_PASSWORD"),
+            "HOST": os.getenv("DB_HOST", "localhost"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
+    }
 
 
 # Password validation
@@ -133,6 +182,31 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+
+# Production HTTPS & Security Settings
+if not DEBUG:
+    # Trust reverse proxy SSL termination (required on Render)
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "True").lower() in ("true", "1", "yes")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = "DENY"
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
 
 # Email
@@ -157,9 +231,37 @@ DEFAULT_FROM_EMAIL = os.getenv(
     os.getenv("EMAIL_USERNAME"),
 )
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-]
+
+# CORS & CSRF Configuration
+# Never use wildcards for credentialed JWT/session requests.
+
+cors_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
+CORS_ALLOWED_ORIGINS = [o.strip() for o in cors_env.split(",") if o.strip()]
+
+frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+if frontend_url and frontend_url not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS.append(frontend_url)
+
+if DEBUG or not CORS_ALLOWED_ORIGINS:
+    for default_origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+        if default_origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(default_origin)
+
+CORS_ALLOW_CREDENTIALS = True
+
+csrf_env = os.getenv("CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in csrf_env.split(",") if o.strip()]
+
+if frontend_url and frontend_url not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(frontend_url)
+
+if render_external_hostname:
+    render_origin = f"https://{render_external_hostname}"
+    if render_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(render_origin)
+
+
+# REST Framework & JWT Authentication
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -181,3 +283,10 @@ AUTH_USER_MODEL = "accounts.User"
 AUTHENTICATION_BACKENDS = [
     "apps.accounts.backends.EmailBackend",
 ]
+
+
+# Ollama Local Service Configuration
+# Defaults to localhost:11434 for development; configurable for tunnels/custom endpoints in production.
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_REQUEST_TIMEOUT = int(os.getenv("OLLAMA_REQUEST_TIMEOUT", "600"))
