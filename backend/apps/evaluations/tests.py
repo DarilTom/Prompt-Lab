@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -376,3 +377,616 @@ class EvaluationRunDetailTests(TestCase):
         self.assertEqual(
             response.data["error_message"], "Evaluation aborted due to connection error."
         )
+
+
+class JudgeScoringServiceTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="judgeuser",
+            email="judgeuser@example.com",
+            password="password123",
+        )
+        self.prompt = Prompt.objects.create(
+            owner=self.user,
+            title="Support Bot",
+            category="support",
+            status="production",
+        )
+        self.prompt_version = PromptVersion.objects.create(
+            prompt=self.prompt,
+            version_number=1,
+            content="Answer: {input}",
+            system_prompt="Helpful bot",
+            created_by=self.user,
+        )
+        self.dataset = EvaluationDataset.objects.create(
+            owner=self.user,
+            name="Judge Benchmark",
+        )
+        self.test_case = EvaluationTestCase.objects.create(
+            dataset=self.dataset,
+            name="Case 1",
+            input_text="What is cloud computing?",
+            expected_output="On-demand availability of computer system resources.",
+            expected_behavior="Accurate and concise.",
+        )
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_valid_scores_and_options(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response, JUDGE_SYSTEM_PROMPT
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 85,
+                    "criteria_scores": {
+                        "relevance": 90,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 85,
+                        "overall_quality": 85,
+                    },
+                    "feedback": "Strong explanation addressing the core prompt.",
+                })
+            }
+        }
+
+        result = evaluate_response(
+            model="llama3.2:1b",
+            input_text="What is cloud computing?",
+            expected_output="On-demand computing resources.",
+            expected_behavior="Accurate.",
+            actual_output="Cloud computing delivers compute and storage over the internet.",
+        )
+
+        mock_run_ollama.assert_called_once()
+        _, kwargs = mock_run_ollama.call_args
+        self.assertEqual(kwargs["model"], "llama3.2:1b")
+        self.assertEqual(kwargs["system_prompt"], JUDGE_SYSTEM_PROMPT)
+        self.assertEqual(kwargs["format"], "json")
+        self.assertEqual(kwargs["options"], {"temperature": 0.2, "num_predict": 512})
+
+        self.assertEqual(result["score"], 85.0)
+        self.assertEqual(
+            result["criteria_scores"],
+            {
+                "relevance": 90.0,
+                "expected_output_alignment": 80.0,
+                "expected_behavior": 85.0,
+                "overall_quality": 85.0,
+            },
+        )
+        self.assertEqual(result["feedback"], "Strong explanation addressing the core prompt.")
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_arithmetic_mean_calculation(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 81,
+                    "criteria_scores": {
+                        "relevance": 70,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 90,
+                        "overall_quality": 85,
+                    },
+                    "feedback": "Decent response.",
+                })
+            }
+        }
+
+        result = evaluate_response(
+            model="llama3.2:1b",
+            input_text="Test",
+            expected_output="Test",
+            expected_behavior="Test",
+            actual_output="Test",
+        )
+
+        # Arithmetic mean: (70 + 80 + 90 + 85) / 4 = 325 / 4 = 81.25
+        self.assertEqual(result["score"], 81.25)
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_inconsistent_overall_score_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 50,
+                    "criteria_scores": {
+                        "relevance": 85,
+                        "expected_output_alignment": 85,
+                        "expected_behavior": 85,
+                        "overall_quality": 85,
+                    },
+                    "feedback": "Contradictory overall score",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("contradicts", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_missing_overall_score_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "criteria_scores": {
+                        "relevance": 80,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 80,
+                        "overall_quality": 80,
+                    },
+                    "feedback": "Missing top-level score",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("missing 'score'", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_non_numeric_overall_score_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        # Non-numeric string
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": "eighty",
+                    "criteria_scores": {
+                        "relevance": 80,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 80,
+                        "overall_quality": 80,
+                    },
+                    "feedback": "Non-numeric score",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("non-numeric", str(ctx.exception).lower())
+
+        # Boolean score
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": True,
+                    "criteria_scores": {
+                        "relevance": 80,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 80,
+                        "overall_quality": 80,
+                    },
+                    "feedback": "Boolean score",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("boolean", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_out_of_range_overall_score_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 105,
+                    "criteria_scores": {
+                        "relevance": 100,
+                        "expected_output_alignment": 100,
+                        "expected_behavior": 100,
+                        "overall_quality": 100,
+                    },
+                    "feedback": "Out of range score",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("outside 0-100 range", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_integer_rounding_tolerance(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        # Mean is (70 + 80 + 90 + 85) / 4 = 81.25.
+        # Score 81 has diff 0.25 <= 0.5 -> Accepted.
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 81,
+                    "criteria_scores": {
+                        "relevance": 70,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 90,
+                        "overall_quality": 85,
+                    },
+                    "feedback": "Valid integer rounded score.",
+                })
+            }
+        }
+
+        result = evaluate_response(
+            model="llama3.2:1b",
+            input_text="Test",
+            expected_output="Test",
+            expected_behavior="Test",
+            actual_output="Test",
+        )
+        self.assertEqual(result["score"], 81.25)
+
+        # Score 82 has diff 0.75 > 0.5 -> Rejected.
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 82,
+                    "criteria_scores": {
+                        "relevance": 70,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 90,
+                        "overall_quality": 85,
+                    },
+                    "feedback": "Inconsistent rounded score.",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("contradicts", str(ctx.exception).lower())
+
+        # Correctly rounded overall score for exact mean (e.g. 85.0 with score 85) -> Accepted.
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 85,
+                    "criteria_scores": {
+                        "relevance": 85,
+                        "expected_output_alignment": 85,
+                        "expected_behavior": 85,
+                        "overall_quality": 85,
+                    },
+                    "feedback": "Exact rounded score.",
+                })
+            }
+        }
+
+        result_exact = evaluate_response(
+            model="llama3.2:1b",
+            input_text="Test",
+            expected_output="Test",
+            expected_behavior="Test",
+            actual_output="Test",
+        )
+        self.assertEqual(result_exact["score"], 85.0)
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_all_zero_scores_with_positive_feedback(
+        self, mock_run_ollama
+    ):
+        """
+        Reproduce the observed failure mode: the judge returns all criterion
+        scores as zero and a top-level score of zero, despite providing positive
+        feedback.
+
+        Numeric consistency checks alone cannot detect this semantic contradiction,
+        because 0.0 for all criteria is mathematically consistent with an overall
+        score of 0 (mean = 0.0). The system must faithfully record the model's
+        evaluated numbers without inventing scores, silently inflating values, or
+        introducing brittle keyword-based sentiment detection.
+        """
+        from apps.evaluations.services import evaluate_response
+
+        positive_feedback = (
+            "The response provided a good overview of cloud computing. "
+            "The overall quality of the response was good, but it could have been "
+            "improved with more attention to detail and relevance to the user's input."
+        )
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 0,
+                    "criteria_scores": {
+                        "relevance": 0,
+                        "expected_output_alignment": 0,
+                        "expected_behavior": 0,
+                        "overall_quality": 0,
+                    },
+                    "feedback": positive_feedback,
+                })
+            }
+        }
+
+        result = evaluate_response(
+            model="llama3.2:1b",
+            input_text="What is cloud computing?",
+            expected_output="Overview of on-demand computing resources.",
+            expected_behavior="Accurate and helpful.",
+            actual_output="Cloud computing provides on-demand data storage and computing power.",
+        )
+
+        self.assertEqual(result["score"], 0.0)
+        self.assertEqual(
+            result["criteria_scores"],
+            {
+                "relevance": 0.0,
+                "expected_output_alignment": 0.0,
+                "expected_behavior": 0.0,
+                "overall_quality": 0.0,
+            },
+        )
+        self.assertEqual(result["feedback"], positive_feedback)
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_missing_criterion_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 80,
+                    "criteria_scores": {
+                        "relevance": 80,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 80,
+                    },
+                    "feedback": "Missing overall_quality",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("overall_quality", str(ctx.exception))
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_non_numeric_criterion_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 80,
+                    "criteria_scores": {
+                        "relevance": "high",
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 80,
+                        "overall_quality": 80,
+                    },
+                    "feedback": "Non-numeric relevance",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("non-numeric", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_boolean_criterion_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 80,
+                    "criteria_scores": {
+                        "relevance": True,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 80,
+                        "overall_quality": 80,
+                    },
+                    "feedback": "Boolean relevance",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("boolean", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_out_of_range_criterion_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "score": 80,
+                    "criteria_scores": {
+                        "relevance": 105,
+                        "expected_output_alignment": 80,
+                        "expected_behavior": 80,
+                        "overall_quality": 80,
+                    },
+                    "feedback": "Out of range",
+                })
+            }
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("outside 0-100 range", str(ctx.exception))
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_invalid_or_empty_json_raises(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        # Empty response
+        mock_run_ollama.return_value = {"message": {"content": ""}}
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("empty response", str(ctx.exception).lower())
+
+        # Malformed non-JSON
+        mock_run_ollama.return_value = {"message": {"content": "Not JSON at all"}}
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="Test",
+                expected_output="Test",
+                expected_behavior="Test",
+                actual_output="Test",
+            )
+        self.assertIn("valid json", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.evaluate_response")
+    @patch("apps.evaluations.services.run_ollama")
+    def test_run_evaluation_pass_fail_threshold_and_error(
+        self, mock_run_ollama, mock_evaluate
+    ):
+        from apps.evaluations.services import run_evaluation
+
+        mock_run_ollama.return_value = {
+            "message": {"content": "Sample output"},
+            "total_duration": 1000000,
+            "prompt_eval_count": 10,
+            "eval_count": 20,
+        }
+
+        # Case 1: Score >= 70 marks result as passed
+        mock_evaluate.return_value = {
+            "score": 70.0,
+            "criteria_scores": {
+                "relevance": 70.0,
+                "expected_output_alignment": 70.0,
+                "expected_behavior": 70.0,
+                "overall_quality": 70.0,
+            },
+            "feedback": "Meets threshold",
+        }
+        run_pass = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            status=EvaluationRun.Status.RUNNING,
+        )
+        run_evaluation(run_pass)
+        res_pass = run_pass.results.first()
+        self.assertEqual(res_pass.status, "passed")
+        self.assertEqual(float(res_pass.score), 70.0)
+
+        # Case 2: Score < 70 marks result as failed
+        mock_evaluate.return_value = {
+            "score": 69.9,
+            "criteria_scores": {
+                "relevance": 70.0,
+                "expected_output_alignment": 69.0,
+                "expected_behavior": 70.0,
+                "overall_quality": 70.0,
+            },
+            "feedback": "Below threshold",
+        }
+        run_fail = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            status=EvaluationRun.Status.RUNNING,
+        )
+        run_evaluation(run_fail)
+        res_fail = run_fail.results.first()
+        self.assertEqual(res_fail.status, "failed")
+        self.assertEqual(float(res_fail.score), 69.9)
+
+        # Case 3: evaluate_response raises ValueError -> marks result as error
+        mock_evaluate.side_effect = ValueError("Evaluator returned invalid JSON")
+        run_err = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            status=EvaluationRun.Status.RUNNING,
+        )
+        has_error = run_evaluation(run_err)
+        self.assertTrue(has_error)
+        res_err = run_err.results.first()
+        self.assertEqual(res_err.status, "error")
+        self.assertIsNone(res_err.score)
+        self.assertEqual(res_err.criteria_scores, {})
+        self.assertIn("Evaluator returned invalid JSON", res_err.feedback)

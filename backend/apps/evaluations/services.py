@@ -13,48 +13,37 @@ from .models import EvaluationResult, EvaluationRun
 
 logger = logging.getLogger(__name__)
 
-JUDGE_SYSTEM_PROMPT = """
-You are an objective evaluator for an LLM prompt-testing platform.
+JUDGE_SYSTEM_PROMPT = """You are an objective evaluator for an LLM prompt-testing platform.
 
-Evaluate the response against the provided user input,
-expected output, and expected behavior.
+Evaluate the actual response against the provided user input, expected output, and expected behavior.
 
-You MUST return all four criteria:
+You MUST evaluate all four criteria on a 0-100 scale, where each score is an integer between 0 and 100, higher scores indicate better performance, and 0 is reserved strictly for completely irrelevant, incorrect, or harmful outputs:
 
-1. relevance
-2. expected_output_alignment
-3. expected_behavior
-4. overall_quality
+1. relevance: How directly and specifically the response addresses the user input (0-100).
+2. expected_output_alignment: How closely the response satisfies the key information, requirements, and intent of the expected output (0-100).
+3. expected_behavior: How strictly the response follows the expected behavioral guidelines, tone, constraints, and instructions (0-100).
+4. overall_quality: Overall clarity, coherence, helpfulness, completeness, and correctness of the response (0-100).
 
-Each criterion must be an integer from 0 to 100.
+Scoring and Feedback Rules:
+- Score each criterion realistically from 0 to 100.
+- A good, accurate, and helpful response must receive high scores (typically 70-100).
+- Do not assign 0 unless the response is entirely wrong, irrelevant, or absent.
+- The overall score must be an integer from 0 to 100 representing the average of the four criterion scores.
+- Your written feedback MUST agree with your numeric scores. If the response is good, your feedback must be positive and your scores must be high. Do not provide positive feedback with low or zero scores.
 
-Definitions:
+You must return ONLY a single valid JSON object with the following fields and types:
+- "score": an integer from 0 to 100 representing the overall average score.
+- "criteria_scores": a JSON object with exactly four numeric integer fields from 0 to 100:
+  - "relevance": integer from 0 to 100
+  - "expected_output_alignment": integer from 0 to 100
+  - "expected_behavior": integer from 0 to 100
+  - "overall_quality": integer from 0 to 100
+- "feedback": a concise string explaining and justifying the scores based on evidence from the response.
 
-- relevance: How directly the response addresses the user's input.
-- expected_output_alignment: How closely the response satisfies the expected output.
-- expected_behavior: How well it follows the requested behavioral requirements.
-- overall_quality: Overall usefulness, clarity, correctness, and completeness.
-
-Also provide an overall score from 0 to 100.
-
-Return ONLY valid JSON in exactly this format:
-
-{
-  "score": 0,
-  "criteria_scores": {
-    "relevance": 0,
-    "expected_output_alignment": 0,
-    "expected_behavior": 0,
-    "overall_quality": 0
-  },
-  "feedback": "Brief explanation of the evaluation."
-}
-
-All four criteria are required.
+All four criteria in criteria_scores are strictly required.
 Do not omit any criterion.
-Do not use a 0-10 scale.
-Do not include markdown.
-Do not include any additional fields.
+Do not use a 0-10 scale; always use 0-100.
+Do not include markdown formatting, code fences, or any commentary outside the JSON object.
 """
 
 
@@ -117,6 +106,11 @@ Return the required JSON structure.
         model=model,
         user_prompt=evaluation_prompt,
         system_prompt=JUDGE_SYSTEM_PROMPT,
+        format="json",
+        options={
+            "temperature": 0.2,
+            "num_predict": 512,
+        },
     )
 
     message = judge_result.get("message", {})
@@ -127,42 +121,33 @@ Return the required JSON structure.
 
     data = _extract_json(judge_output)
 
-    if not data:
-        # Fallback: try to recover just the score if JSON formatting failed.
-        score_match = re.search(
-            r'"score"\s*:\s*(\d+(?:\.\d+)?)',
-            judge_output,
+    if not isinstance(data, dict):
+        raise ValueError("The evaluator model did not return a valid JSON object.")
+
+    if "score" not in data:
+        raise ValueError("The evaluator model response is missing 'score'.")
+
+    raw_judge_score = data["score"]
+    if isinstance(raw_judge_score, bool):
+        raise ValueError(
+            f"Overall score has non-numeric boolean value: {raw_judge_score!r}"
         )
 
-        if not score_match:
-            raise ValueError(
-                "The evaluator model did not return valid JSON."
-            )
-
-        score = float(score_match.group(1))
-
-        return {
-            "score": max(0.0, min(100.0, score)),
-            "criteria_scores": {},
-            "feedback": judge_output,
-        }
-
-    raw_score = data.get("score", 0)
-
     try:
-        score = float(raw_score)
+        judge_score = float(raw_judge_score)
     except (TypeError, ValueError):
-        score = 0.0
+        raise ValueError(
+            f"Overall score has non-numeric value: {raw_judge_score!r}"
+        )
 
-    score = max(0.0, min(100.0, score))
+    if not (0.0 <= judge_score <= 100.0):
+        raise ValueError(
+            f"Overall score value {judge_score} is outside 0-100 range."
+        )
 
-    criteria_scores = data.get(
-        "criteria_scores",
-        {}
-    )
-
-    if not isinstance(criteria_scores, dict):
-        criteria_scores = {}
+    criteria_data = data.get("criteria_scores")
+    if not isinstance(criteria_data, dict):
+        raise ValueError("The evaluator model response is missing 'criteria_scores'.")
 
     # These four criteria are equally weighted.
     required_criteria = [
@@ -173,86 +158,48 @@ Return the required JSON structure.
     ]
 
     cleaned_criteria = {}
-
-    criteria_scores = data.get(
-        "criteria_scores",
-        {}
-    )
-
-    if not isinstance(criteria_scores, dict):
-        criteria_scores = {}
-
-    required_criteria = [
-        "relevance",
-        "expected_output_alignment",
-        "expected_behavior",
-        "overall_quality",
-    ]
-
-    cleaned_criteria = {}
-
     for key in required_criteria:
-        value = criteria_scores.get(key)
+        if key not in criteria_data:
+            raise ValueError(
+                f"The evaluator model response is missing criterion '{key}'."
+            )
+
+        value = criteria_data[key]
+        if isinstance(value, bool):
+            raise ValueError(
+                f"Criterion '{key}' has non-numeric boolean value: {value!r}"
+            )
 
         try:
             numeric_value = float(value)
-
-            # Accept both 0–10 and 0–100 judge scales.
-            if 0 <= numeric_value <= 10:
-                numeric_value *= 10
-
-            cleaned_criteria[key] = max(
-                0.0,
-                min(100.0, numeric_value)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Criterion '{key}' has non-numeric value: {value!r}"
             )
 
-        except (TypeError, ValueError):
-            # Leave missing/invalid criteria out rather than
-            # forcing them to 0.
-            continue
+        if not (0.0 <= numeric_value <= 100.0):
+            raise ValueError(
+                f"Criterion '{key}' value {numeric_value} is outside 0-100 range."
+            )
 
-    # Normalize the judge's overall score too.
-    raw_judge_score = data.get("score")
+        cleaned_criteria[key] = round(numeric_value, 2)
 
-    try:
-        judge_score = float(raw_judge_score)
+    final_score = round(
+        sum(cleaned_criteria.values()) / len(cleaned_criteria),
+        2,
+    )
 
-        if 0 <= judge_score <= 10:
-            judge_score *= 10
-
-        judge_score = max(
-            0.0,
-            min(100.0, judge_score)
+    if abs(judge_score - final_score) > 0.5:
+        raise ValueError(
+            f"The evaluator model overall score {judge_score} contradicts the criteria average {final_score}."
         )
-    except (TypeError, ValueError):
-        judge_score = None
-
-    # Calculate our application score.
-    #
-    # Preferred:
-    #   average of all four criteria.
-    #
-    # Fallback:
-    #   average of whatever valid criteria the judge returned.
-    #
-    # Final fallback:
-    #   normalized judge overall score.
-    if cleaned_criteria:
-        final_score = (
-            sum(cleaned_criteria.values())
-            / len(cleaned_criteria)
-        )
-    elif judge_score is not None:
-        final_score = judge_score
-    else:
-        final_score = 0.0
 
     feedback = str(
         data.get("feedback", "")
     ).strip()
 
     return {
-        "score": round(final_score, 2),
+        "score": final_score,
         "criteria_scores": cleaned_criteria,
         "feedback": feedback,
     }
