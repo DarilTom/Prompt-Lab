@@ -64,13 +64,16 @@ function formatDate(value) {
 function statusClasses(status) {
   switch (status) {
     case "completed":
-      return "bg-success/10 text-success";
+      return "bg-success/10 text-success border border-success/20";
 
     case "failed":
-      return "bg-error/10 text-error";
+      return "bg-error/10 text-error border border-error/20";
 
     case "running":
-      return "bg-warning/10 text-warning";
+      return "bg-brand/10 text-brand border border-brand/20";
+
+    case "pending":
+      return "bg-warning/10 text-warning border border-warning/20";
 
     default:
       return "bg-border text-muted";
@@ -78,16 +81,19 @@ function statusClasses(status) {
 }
 
 function scoreClasses(score) {
+  if (score === null || score === undefined) {
+    return "text-muted";
+  }
+
   const numericScore = Number(score);
 
   if (Number.isNaN(numericScore)) {
     return "text-muted";
   }
 
-  if (numericScore >= 70) {
-    return "text-success";
-  }
-
+  if (numericScore >= 80) return "text-success";
+  if (numericScore >= 60) return "text-brand";
+  if (numericScore >= 40) return "text-warning";
   return "text-error";
 }
 
@@ -264,7 +270,7 @@ export default function RunEvaluation() {
     Number(selectedDataset.test_case_count || 0) >
       0;
 
-  const [progressStatus, setProgressStatus] = useState("");
+  const [pollingError, setPollingError] = useState("");
   const abortControllerRef = useRef(null);
 
   useEffect(() => {
@@ -278,60 +284,88 @@ export default function RunEvaluation() {
   async function handleRunEvaluation(event) {
     event.preventDefault();
 
-    if (!canRun) {
+    if (!canRun || running) {
       return;
     }
 
     try {
       setRunning(true);
       setError("");
-      setResult(null);
-      setProgressStatus("Starting evaluation...");
+      setPollingError("");
 
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
       abortControllerRef.current = new AbortController();
 
-      const initialRun = await createEvaluationRun({
-        prompt_version: Number(selectedVersionId),
-        dataset: Number(selectedDatasetId),
-        model: model.trim(),
-      });
-
-      let finalRun = initialRun;
-      if (initialRun.status !== "completed" && initialRun.status !== "failed") {
-        const total = initialRun.total_cases || selectedDataset?.test_case_count || "";
-        setProgressStatus(
-          total ? `Evaluating test cases (0 of ${total})...` : "Evaluating test cases..."
-        );
-
-        finalRun = await pollEvaluationRun(initialRun.id, {
-          signal: abortControllerRef.current.signal,
-          onProgress: (inProgressRun) => {
-            const completedCount =
-              (inProgressRun.passed_cases || 0) + (inProgressRun.failed_cases || 0);
-            setProgressStatus(
-              `Evaluating test cases (${completedCount} of ${inProgressRun.total_cases})...`
-            );
-          },
+      let initialRun;
+      try {
+        initialRun = await createEvaluationRun({
+          prompt_version: Number(selectedVersionId),
+          dataset: Number(selectedDatasetId),
+          model: model.trim(),
         });
-      }
-
-      setResult(finalRun);
-    } catch (err) {
-      if (err.name === "AbortError") {
+      } catch (createErr) {
+        if (createErr.name === "AbortError") return;
+        console.error("Create evaluation run failed:", createErr);
+        setError(createErr.message || "Unable to start the evaluation.");
+        setResult(null);
         return;
       }
-      console.error(err);
 
-      setError(
-        err.message ||
-          "Unable to start or complete the evaluation."
+      // Immediately show the inline status panel with the evaluation run ID and initial status
+      setResult(initialRun);
+
+      // Poll the evaluation detail endpoint while pending or running
+      if (initialRun.status !== "completed" && initialRun.status !== "failed") {
+        try {
+          const finalRun = await pollEvaluationRun(initialRun.id, {
+            signal: abortControllerRef.current.signal,
+            onProgress: (inProgressRun) => {
+              setResult(inProgressRun);
+            },
+          });
+          setResult(finalRun);
+        } catch (pollErr) {
+          if (pollErr.name === "AbortError") return;
+          console.error("Polling evaluation run failed:", pollErr);
+          setPollingError(
+            pollErr.message || "Failed to update evaluation status automatically."
+          );
+        }
+      }
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function handleRetryPolling() {
+    if (!result?.id || running) return;
+
+    try {
+      setRunning(true);
+      setPollingError("");
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
+      const finalRun = await pollEvaluationRun(result.id, {
+        signal: abortControllerRef.current.signal,
+        onProgress: (inProgressRun) => {
+          setResult(inProgressRun);
+        },
+      });
+      setResult(finalRun);
+    } catch (pollErr) {
+      if (pollErr.name === "AbortError") return;
+      console.error("Retry polling failed:", pollErr);
+      setPollingError(
+        pollErr.message || "Failed to update evaluation status automatically."
       );
     } finally {
       setRunning(false);
-      setProgressStatus("");
     }
   }
 
@@ -552,7 +586,7 @@ export default function RunEvaluation() {
                 {running ? (
                   <>
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                    {progressStatus || "Running evaluation..."}
+                    Starting evaluation...
                   </>
                 ) : (
                   <>
@@ -681,227 +715,379 @@ export default function RunEvaluation() {
         </form>
       )}
 
-      {/* Result */}
-      {result && (
-        <div className="space-y-6">
-          {/* Summary */}
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
-              <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand">
-                  Evaluation complete
-                </p>
+      {/* Result / Active Run View */}
+      {result && (() => {
+        const totalCases =
+          result.total_cases || selectedDataset?.test_case_count || 0;
+        const processedCases =
+          (result.passed_cases || 0) + (result.failed_cases || 0);
+        const progressPercent =
+          totalCases > 0
+            ? Math.min(100, Math.round((processedCases / totalCases) * 100))
+            : 0;
+        const isRunning =
+          result.status === "running" || result.status === "pending";
 
-                <h2 className="mt-1 font-serif text-3xl text-ink">
-                  Evaluation #{result.id}
-                </h2>
+        return (
+          <div className="space-y-6">
+            {isRunning ? (
+              /* Inline Status Panel for Pending/Running evaluation */
+              <div className="rounded-xl border border-brand/30 bg-surface p-6 shadow-subtle">
+                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand font-semibold">
+                        Evaluation In Progress
+                      </p>
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] ${statusClasses(
+                          result.status
+                        )}`}
+                      >
+                        <span className="h-2 w-2 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        {result.status}
+                      </span>
+                    </div>
 
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
-                  <span>
-                    {result.prompt_title} · v{result.version_number} · {result.dataset_name}
-                  </span>
-                  {result.prompt_status && (
-                    <span className="rounded-full bg-brand/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-brand font-semibold">
-                      Prompt: {result.prompt_status}
-                    </span>
-                  )}
+                    <h2 className="mt-1 font-serif text-3xl text-ink">
+                      Evaluation #{result.id}
+                    </h2>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
+                      <span>
+                        {result.prompt_title || selectedPrompt?.title} · v
+                        {result.version_number || selectedVersion?.version_number} ·{" "}
+                        {result.dataset_name || selectedDataset?.name}
+                      </span>
+                      <span className="rounded-full bg-surface border border-border px-2 py-0.5 font-mono text-[10px] text-muted">
+                        Model: {result.model}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/dashboard/evaluations/runs/${result.id}`}
+                      className="inline-flex items-center gap-1 text-xs text-brand hover:underline font-medium"
+                    >
+                      Open in Runs ↗
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Progress Summary */}
+                <div className="mt-6 rounded-lg border border-border bg-background p-4">
+                  <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">
+                        {processedCases} of {totalCases} test cases processed
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-brand animate-pulse" />
+                        Generating responses and evaluating with objective judge LLM...
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs font-mono">
+                      <span className="text-success font-medium">
+                        {result.passed_cases || 0} passed
+                      </span>
+                      <span className="text-border">|</span>
+                      <span className="text-error font-medium">
+                        {result.failed_cases || 0} failed
+                      </span>
+                      <span className="text-border">|</span>
+                      <span className="text-muted">
+                        {Math.max(0, totalCases - processedCases)} remaining
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-border/60">
+                    <div
+                      className="h-full bg-brand transition-all duration-500 ease-out"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Polling Error Alert */}
+                {pollingError && (
+                  <div className="mt-4 flex items-center justify-between rounded-control border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+                    <span>{pollingError}</span>
+                    <button
+                      type="button"
+                      onClick={handleRetryPolling}
+                      className="ml-3 font-semibold underline hover:opacity-80"
+                    >
+                      Retry polling
+                    </button>
+                  </div>
+                )}
+
+                {/* Actions while running */}
+                <div className="mt-5 border-t border-border pt-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-xs text-muted">
+                    <p className="max-w-xl leading-relaxed">
+                      Status updates automatically. Stopping monitoring does not cancel an evaluation already running on the backend; it will remain saved and accessible through its run-history link.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (abortControllerRef.current) {
+                          abortControllerRef.current.abort();
+                        }
+                        setRunning(false);
+                        setResult(null);
+                        setPollingError("");
+                      }}
+                      className="shrink-0 text-xs text-muted hover:text-ink underline transition-standard"
+                    >
+                      Stop monitoring & configure another run
+                    </button>
+                  </div>
                 </div>
               </div>
+            ) : (
+              /* Completed or Failed Summary Card */
+              <div className="rounded-xl border border-border bg-surface p-6 shadow-subtle">
+                <div className="flex flex-col justify-between gap-5 md:flex-row md:items-start">
+                  <div>
+                    <p
+                      className={`font-mono text-[10px] uppercase tracking-[0.18em] font-semibold ${
+                        result.status === "completed"
+                          ? "text-success"
+                          : "text-error"
+                      }`}
+                    >
+                      {result.status === "completed"
+                        ? "Evaluation complete"
+                        : "Evaluation failed"}
+                    </p>
 
-              <span
-                className={`w-fit rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] ${statusClasses(
-                  result.status
-                )}`}
-              >
-                {result.status}
-              </span>
-            </div>
+                    <h2 className="mt-1 font-serif text-3xl text-ink">
+                      Evaluation #{result.id}
+                    </h2>
 
-            {result.error_message && (
-              <div className="mt-4 rounded-control border border-error/30 bg-error/10 p-3 text-xs text-error">
-                {result.error_message}
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
+                      <span>
+                        {result.prompt_title} · v{result.version_number} ·{" "}
+                        {result.dataset_name}
+                      </span>
+                      <span className="rounded-full bg-surface border border-border px-2 py-0.5 font-mono text-[10px] text-muted">
+                        Model: {result.model}
+                      </span>
+                      {result.prompt_status && (
+                        <span className="rounded-full bg-brand/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-brand font-semibold">
+                          Prompt: {result.prompt_status}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <span
+                    className={`w-fit rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] font-medium ${statusClasses(
+                      result.status
+                    )}`}
+                  >
+                    {result.status}
+                  </span>
+                </div>
+
+                {/* Safe error message if failed */}
+                {result.error_message && (
+                  <div className="mt-4 rounded-control border border-error/30 bg-error/10 p-3 text-xs text-error">
+                    {result.error_message}
+                  </div>
+                )}
+
+                {/* Primary Metrics Grid */}
+                <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div className="rounded-lg border border-border bg-background p-4">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
+                      Overall score
+                    </p>
+                    <p
+                      className={`mt-2 font-mono text-2xl font-semibold ${scoreClasses(
+                        result.overall_score
+                      )}`}
+                    >
+                      {result.overall_score ?? "—"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-background p-4">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
+                      Test cases
+                    </p>
+                    <p className="mt-2 font-mono text-2xl font-semibold text-ink">
+                      {result.total_cases}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-background p-4">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
+                      Passed cases
+                    </p>
+                    <p className="mt-2 font-mono text-2xl font-semibold text-success">
+                      {result.passed_cases}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-background p-4">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
+                      Failed cases
+                    </p>
+                    <p className="mt-2 font-mono text-2xl font-semibold text-error">
+                      {result.failed_cases}
+                    </p>
+                  </div>
+                </div>
+
+                {result.total_duration && (
+                  <div className="mt-3 flex items-center justify-end text-xs text-muted font-mono">
+                    Total duration: {formatDuration(result.total_duration)}
+                  </div>
+                )}
               </div>
             )}
 
-            <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-              <div className="rounded-lg border border-border bg-background p-4">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
-                  Overall score
-                </p>
+            {/* Test Case Results (displayed incrementally while running or upon completion) */}
+            {result.results && result.results.length > 0 && (
+              <div className="rounded-xl border border-border bg-surface p-6 shadow-subtle">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+                      Test results
+                    </p>
+                    <h2 className="mt-1 font-serif text-2xl text-ink">
+                      Case-by-case evaluation
+                    </h2>
+                  </div>
+                  <span className="font-mono text-xs text-muted">
+                    {result.results.length} of {totalCases} cases
+                  </span>
+                </div>
 
-                <p
-                  className={`mt-2 font-mono text-2xl font-semibold ${scoreClasses(
-                    result.overall_score
-                  )}`}
-                >
-                  {result.overall_score ??
-                    "—"}
-                </p>
-              </div>
+                <div className="space-y-4">
+                  {result.results.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-border bg-background p-5"
+                    >
+                      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-ink">
+                              {item.test_case_name || `Test Case #${item.test_case}`}
+                            </h3>
 
-              <div className="rounded-lg border border-border bg-background p-4">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
-                  Test cases
-                </p>
+                            <span
+                              className={`rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] ${
+                                item.status === "passed"
+                                  ? "bg-success/10 text-success"
+                                  : "bg-error/10 text-error"
+                              }`}
+                            >
+                              {item.status}
+                            </span>
+                          </div>
 
-                <p className="mt-2 font-mono text-2xl font-semibold text-ink">
-                  {result.total_cases}
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border bg-background p-4">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
-                  Passed
-                </p>
-
-                <p className="mt-2 font-mono text-2xl font-semibold text-success">
-                  {result.passed_cases}
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border bg-background p-4">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
-                  Duration
-                </p>
-
-                <p className="mt-2 font-mono text-2xl font-semibold text-ink">
-                  {formatDuration(
-                    result.total_duration
-                  )}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Results */}
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <div className="mb-5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-                Test results
-              </p>
-
-              <h2 className="mt-1 font-serif text-2xl text-ink">
-                Case-by-case evaluation
-              </h2>
-            </div>
-
-            <div className="space-y-4">
-              {(result.results || []).map(
-                (item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-lg border border-border bg-background p-5"
-                  >
-                    <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-semibold text-ink">
-                            {item.test_case_name}
-                          </h3>
-
-                          <span
-                            className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[0.1em] ${
-                              item.status ===
-                              "passed"
-                                ? "bg-success/10 text-success"
-                                : "bg-error/10 text-error"
-                            }`}
-                          >
-                            {item.status}
-                          </span>
+                          <p className="mt-1 font-mono text-[10px] text-muted">
+                            Test case #{item.test_case}
+                            {item.execution_id && ` · Execution #${item.execution_id}`}
+                          </p>
                         </div>
 
-                        <p className="mt-1 font-mono text-[10px] text-muted">
-                          Test case #{item.test_case}
-                          {" · "}
-                          Execution #{item.execution_id}
-                        </p>
+                        <div className="text-left md:text-right">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
+                            Score
+                          </p>
+                          <p
+                            className={`mt-1 font-mono text-2xl font-semibold ${scoreClasses(
+                              item.score
+                            )}`}
+                          >
+                            {item.score ?? "—"}
+                          </p>
+                        </div>
                       </div>
 
-                      <div className="text-left md:text-right">
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
-                          Score
-                        </p>
-
-                        <p
-                          className={`mt-1 font-mono text-2xl font-semibold ${scoreClasses(
-                            item.score
-                          )}`}
-                        >
-                          {item.score ??
-                            "—"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {item.criteria_scores &&
-                      Object.keys(
-                        item.criteria_scores
-                      ).length > 0 && (
-                        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-                          {Object.entries(
-                            item.criteria_scores
-                          ).map(
-                            ([
-                              criterion,
-                              value,
-                            ]) => (
-                              <div
-                                key={criterion}
-                                className="rounded-md border border-border bg-surface p-3"
-                              >
-                                <p className="truncate text-[10px] uppercase tracking-[0.1em] text-muted">
-                                  {criterion.replace(
-                                    /_/g,
-                                    " "
-                                  )}
-                                </p>
-
-                                <p className="mt-1 font-mono text-sm font-semibold text-ink">
-                                  {value}
-                                </p>
-                              </div>
-                            )
-                          )}
+                      {/* Generated response */}
+                      {item.execution_output && (
+                        <div className="mt-4 border-t border-border pt-3">
+                          <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                            Generated Response
+                          </p>
+                          <div className="rounded-md border border-border/80 bg-surface p-3 text-xs text-ink whitespace-pre-wrap font-sans">
+                            {item.execution_output}
+                          </div>
                         </div>
                       )}
 
-                    {item.feedback && (
-                      <div className="mt-5 border-t border-border pt-4">
-                        <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                          Feedback
-                        </p>
+                      {item.criteria_scores &&
+                        Object.keys(item.criteria_scores).length > 0 && (
+                          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                            {Object.entries(item.criteria_scores).map(
+                              ([criterion, value]) => (
+                                <div
+                                  key={criterion}
+                                  className="rounded-md border border-border bg-surface p-3"
+                                >
+                                  <p className="truncate text-[10px] uppercase tracking-[0.1em] text-muted">
+                                    {criterion.replace(/_/g, " ")}
+                                  </p>
+                                  <p className="mt-1 font-mono text-sm font-semibold text-ink">
+                                    {value}
+                                  </p>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
 
-                        <p className="text-sm leading-6 text-muted">
-                          {item.feedback}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )
-              )}
-            </div>
+                      {item.feedback && (
+                        <div className="mt-4 border-t border-border pt-3">
+                          <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                            Judge Feedback
+                          </p>
+                          <p className="text-sm leading-6 text-muted">
+                            {item.feedback}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions on terminal state */}
+            {!isRunning && (
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Link
+                  to={`/dashboard/evaluations/runs/${result.id}`}
+                  className="inline-flex items-center justify-center rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink hover:border-ink transition-standard"
+                >
+                  Open full result in Runs
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResult(null);
+                    setPollingError("");
+                  }}
+                  className="inline-flex items-center justify-center rounded-control bg-brand px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-standard"
+                >
+                  Run another evaluation
+                </button>
+              </div>
+            )}
           </div>
-
-          {/* Actions */}
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              to={`/dashboard/evaluations/runs/${result.id}`}
-              className="inline-flex items-center justify-center rounded-control border border-border bg-surface px-4 py-2.5 text-sm font-medium text-ink hover:border-ink"
-            >
-              Open full result
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => setResult(null)}
-              className="inline-flex items-center justify-center rounded-control bg-brand px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-            >
-              Run another evaluation
-            </button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
