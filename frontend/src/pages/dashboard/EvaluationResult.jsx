@@ -161,11 +161,6 @@ export default function EvaluationResult() {
     );
   }
 
-  const passRate =
-    run.total_cases > 0
-      ? ((Number(run.passed_cases) / Number(run.total_cases)) * 100).toFixed(0)
-      : "0";
-
   return (
     <div className="space-y-8 pb-12 max-w-5xl">
       {/* Back button */}
@@ -233,7 +228,7 @@ export default function EvaluationResult() {
         )}
 
         {/* Primary Metrics Grid */}
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-border bg-background p-4">
             <p className="text-[10px] uppercase tracking-[0.12em] text-muted font-mono">
               Overall score
@@ -255,32 +250,14 @@ export default function EvaluationResult() {
               {run.total_cases}
             </p>
           </div>
-
-          <div className="rounded-lg border border-border bg-background p-4">
-            <p className="text-[10px] uppercase tracking-[0.12em] text-muted font-mono">
-              Passed cases
-            </p>
-            <p className="mt-2 font-mono text-3xl font-semibold text-success">
-              {run.passed_cases}
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-border bg-background p-4">
-            <p className="text-[10px] uppercase tracking-[0.12em] text-muted font-mono">
-              Failed cases
-            </p>
-            <p className="mt-2 font-mono text-3xl font-semibold text-error">
-              {run.failed_cases}
-            </p>
-          </div>
         </div>
 
         {/* Concise Plain-English Explanation Banner */}
         <div className="mt-4 rounded-lg border border-brand/20 bg-brand/5 p-4 text-sm text-ink">
           <p className="leading-relaxed">
-            This evaluation scored <strong className="font-mono">{run.overall_score ?? "—"}</strong> out of 100 overall.
-            {" "}<strong>{run.passed_cases}</strong> of <strong>{run.total_cases}</strong> test cases passed successfully
-            {" "}(<strong className="font-mono">{passRate}%</strong> pass rate).
+            Evaluation completed for <strong>{run.total_cases}</strong>{" "}
+            {run.total_cases === 1 ? "test case" : "test cases"}.
+            {" "}Overall score: <strong className="font-mono">{run.overall_score !== null && run.overall_score !== undefined ? `${run.overall_score}/100` : "—"}</strong>.
           </p>
         </div>
 
@@ -375,17 +352,11 @@ export default function EvaluationResult() {
                         {result.test_case_name || `Case #${result.test_case}`}
                       </h3>
 
-                      <span
-                        className={`rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] ${
-                          result.status === "passed"
-                            ? "bg-success/10 text-success"
-                            : result.status === "failed"
-                              ? "bg-error/10 text-error"
-                              : "bg-warning/10 text-warning"
-                        }`}
-                      >
-                        {result.status}
-                      </span>
+                      {result.status === "error" && (
+                        <span className="rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] bg-warning/10 text-warning">
+                          Error
+                        </span>
+                      )}
                     </div>
 
                     <p className="mt-1 font-mono text-[10px] text-muted">

@@ -793,16 +793,10 @@ export default function RunEvaluation() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-3 text-xs font-mono">
-                      <span className="text-success font-medium">
-                        {result.passed_cases || 0} passed
-                      </span>
+                    <div className="flex items-center gap-3 text-xs font-mono text-muted">
+                      <span>{progressPercent}%</span>
                       <span className="text-border">|</span>
-                      <span className="text-error font-medium">
-                        {result.failed_cases || 0} failed
-                      </span>
-                      <span className="text-border">|</span>
-                      <span className="text-muted">
+                      <span>
                         {Math.max(0, totalCases - processedCases)} remaining
                       </span>
                     </div>
@@ -913,7 +907,7 @@ export default function RunEvaluation() {
                 )}
 
                 {/* Primary Metrics Grid */}
-                <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="rounded-lg border border-border bg-background p-4">
                     <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
                       Overall score
@@ -935,24 +929,15 @@ export default function RunEvaluation() {
                       {result.total_cases}
                     </p>
                   </div>
+                </div>
 
-                  <div className="rounded-lg border border-border bg-background p-4">
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
-                      Passed cases
-                    </p>
-                    <p className="mt-2 font-mono text-2xl font-semibold text-success">
-                      {result.passed_cases}
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg border border-border bg-background p-4">
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted">
-                      Failed cases
-                    </p>
-                    <p className="mt-2 font-mono text-2xl font-semibold text-error">
-                      {result.failed_cases}
-                    </p>
-                  </div>
+                {/* Concise Plain-English Explanation Banner */}
+                <div className="mt-4 rounded-lg border border-brand/20 bg-brand/5 p-4 text-sm text-ink">
+                  <p className="leading-relaxed">
+                    Evaluation completed for <strong>{result.total_cases}</strong>{" "}
+                    {result.total_cases === 1 ? "test case" : "test cases"}.
+                    {" "}Overall score: <strong className="font-mono">{result.overall_score !== null && result.overall_score !== undefined ? `${result.overall_score}/100` : "—"}</strong>.
+                  </p>
                 </div>
 
                 {result.total_duration && (
@@ -993,15 +978,11 @@ export default function RunEvaluation() {
                               {item.test_case_name || `Test Case #${item.test_case}`}
                             </h3>
 
-                            <span
-                              className={`rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] ${
-                                item.status === "passed"
-                                  ? "bg-success/10 text-success"
-                                  : "bg-error/10 text-error"
-                              }`}
-                            >
-                              {item.status}
-                            </span>
+                            {item.status === "error" && (
+                              <span className="rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] bg-warning/10 text-warning">
+                                Error
+                              </span>
+                            )}
                           </div>
 
                           <p className="mt-1 font-mono text-[10px] text-muted">
