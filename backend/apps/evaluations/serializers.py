@@ -102,6 +102,10 @@ class EvaluationResultSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    judge_model = serializers.CharField(
+        read_only=True,
+    )
+
     class Meta:
         model = EvaluationResult
 
@@ -116,6 +120,7 @@ class EvaluationResultSerializer(serializers.ModelSerializer):
             "prompt_eval_count",
             "eval_count",
             "execution_model",
+            "judge_model",
             "status",
             "score",
             "criteria_scores",
@@ -134,6 +139,7 @@ class EvaluationResultSerializer(serializers.ModelSerializer):
             "prompt_eval_count",
             "eval_count",
             "execution_model",
+            "judge_model",
             "status",
             "score",
             "criteria_scores",
@@ -181,6 +187,7 @@ class EvaluationRunSerializer(serializers.ModelSerializer):
             "dataset",
             "dataset_name",
             "model",
+            "judge_model",
             "status",
             "total_cases",
             "passed_cases",
@@ -205,6 +212,7 @@ class EvaluationRunSerializer(serializers.ModelSerializer):
             "dataset",
             "dataset_name",
             "model",
+            "judge_model",
             "status",
             "total_cases",
             "passed_cases",
@@ -228,4 +236,11 @@ class EvaluationRunCreateSerializer(serializers.Serializer):
 
     model = serializers.CharField(
         max_length=200
+    )
+
+    judge_model = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
     )

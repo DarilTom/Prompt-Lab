@@ -762,6 +762,11 @@ export default function RunEvaluation() {
                       <span className="rounded-full bg-surface border border-border px-2 py-0.5 font-mono text-[10px] text-muted">
                         Model: {result.model}
                       </span>
+                      {result.judge_model && (
+                        <span className="rounded-full bg-surface border border-border px-2 py-0.5 font-mono text-[10px] text-muted">
+                          Evaluator: {result.judge_model}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -878,6 +883,11 @@ export default function RunEvaluation() {
                       <span className="rounded-full bg-surface border border-border px-2 py-0.5 font-mono text-[10px] text-muted">
                         Model: {result.model}
                       </span>
+                      {result.judge_model && (
+                        <span className="rounded-full bg-surface border border-border px-2 py-0.5 font-mono text-[10px] text-muted">
+                          Evaluator: {result.judge_model}
+                        </span>
+                      )}
                       {result.prompt_status && (
                         <span className="rounded-full bg-brand/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-brand font-semibold">
                           Prompt: {result.prompt_status}
@@ -997,6 +1007,8 @@ export default function RunEvaluation() {
                           <p className="mt-1 font-mono text-[10px] text-muted">
                             Test case #{item.test_case}
                             {item.execution_id && ` · Execution #${item.execution_id}`}
+                            {item.execution_model && ` · Model: ${item.execution_model}`}
+                            {item.judge_model && ` · Evaluator: ${item.judge_model}`}
                           </p>
                         </div>
 

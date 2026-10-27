@@ -21,7 +21,7 @@ from .serializers import (
     EvaluationRunSerializer,
     TestCaseSerializer,
 )
-from .services import run_evaluation, start_evaluation_run_background
+from .services import get_judge_model, run_evaluation, start_evaluation_run_background
 
 
 # ============================================================
@@ -382,6 +382,11 @@ class EvaluationRunListCreateView(APIView):
         # Create evaluation run & start background processing
         # ----------------------------------------------------
 
+        judge_model = (
+            serializer.validated_data.get("judge_model", "").strip()
+            or get_judge_model()
+        )
+
         with transaction.atomic():
             evaluation_run = EvaluationRun.objects.create(
                 owner=request.user,
@@ -389,6 +394,7 @@ class EvaluationRunListCreateView(APIView):
                 prompt_version=prompt_version,
                 dataset=dataset,
                 model=model,
+                judge_model=judge_model,
                 status=EvaluationRun.Status.RUNNING,
                 total_cases=test_case_count,
                 passed_cases=0,

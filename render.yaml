@@ -36,6 +36,8 @@ services:
         sync: false
       - key: OLLAMA_TUNNEL_PASSWORD
         sync: false
+      - key: EVALUATION_JUDGE_MODEL
+        value: "gemma3:4b"
 
   # -------------------------------------------------------------
   # Frontend Static Site (React + Vite + Tailwind CSS)

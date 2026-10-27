@@ -312,3 +312,9 @@ if OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD:
             "OLLAMA_BASE_URL must not contain embedded credentials in the URL. "
             "Use OLLAMA_TUNNEL_USERNAME and OLLAMA_TUNNEL_PASSWORD instead."
         )
+
+
+# Evaluation Lab Configuration
+# The evaluator model used as an LLM judge to score responses and provide feedback in Evaluation Lab.
+# Defaults to gemma3:4b; can be overridden via EVALUATION_JUDGE_MODEL environment variable.
+EVALUATION_JUDGE_MODEL = os.getenv("EVALUATION_JUDGE_MODEL", "gemma3:4b").strip() or "gemma3:4b"

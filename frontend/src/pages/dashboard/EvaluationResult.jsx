@@ -204,6 +204,9 @@ export default function EvaluationResult() {
 
             <p className="mt-0.5 text-xs text-muted">
               Dataset: {run.dataset_name} · Model: {run.model}
+              {run.judge_model && (
+                <> · Evaluator: <span className="font-mono">{run.judge_model}</span></>
+              )}
             </p>
           </div>
 
@@ -386,7 +389,8 @@ export default function EvaluationResult() {
                     </div>
 
                     <p className="mt-1 font-mono text-[10px] text-muted">
-                      Test case #{result.test_case} · Execution #{result.execution_id} · {result.execution_model}
+                      Test case #{result.test_case} · Execution #{result.execution_id} · Model: {result.execution_model}
+                      {result.judge_model && ` · Evaluator: ${result.judge_model}`}
                     </p>
                   </div>
 

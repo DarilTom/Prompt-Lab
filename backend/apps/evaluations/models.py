@@ -101,6 +101,12 @@ class EvaluationRun(models.Model):
         max_length=200,
     )
 
+    judge_model = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+    )
+
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -194,6 +200,12 @@ class EvaluationResult(models.Model):
         null=True,
         blank=True,
         related_name="evaluation_results",
+    )
+
+    judge_model = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
     )
 
     status = models.CharField(

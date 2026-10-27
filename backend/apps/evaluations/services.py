@@ -4,6 +4,7 @@ import re
 import threading
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -19,25 +20,31 @@ Evaluate the actual response against the provided user input, expected output, a
 
 You MUST evaluate all four criteria on a 0-100 scale, where each score is an integer between 0 and 100, higher scores indicate better performance, and 0 is reserved strictly for completely irrelevant, incorrect, or harmful outputs:
 
-1. relevance: How directly and specifically the response addresses the user input (0-100).
-2. expected_output_alignment: How closely the response satisfies the key information, requirements, and intent of the expected output (0-100).
-3. expected_behavior: How strictly the response follows the expected behavioral guidelines, tone, constraints, and instructions (0-100).
-4. overall_quality: Overall clarity, coherence, helpfulness, completeness, and correctness of the response (0-100).
+1. relevance: How directly and specifically the response addresses the user input (integer 0-100).
+2. expected_output_alignment: How closely the response satisfies the key information, requirements, and intent of the expected output (integer 0-100). If no expected output was specified, score based on factual correctness.
+3. expected_behavior: How strictly the response follows the expected behavioral guidelines, tone, constraints, and instructions (integer 0-100). If no behavioral guidelines were specified, score based on general clarity and professionalism.
+4. overall_quality: Overall clarity, coherence, helpfulness, completeness, and correctness of the response (integer 0-100).
 
-Scoring and Feedback Rules:
-- Score each criterion realistically from 0 to 100.
-- A good, accurate, and helpful response must receive high scores (typically 70-100).
-- Do not assign 0 unless the response is entirely wrong, irrelevant, or absent.
-- The overall score must be an integer from 0 to 100 representing the average of the four criterion scores.
-- Your written feedback MUST agree with your numeric scores. If the response is good, your feedback must be positive and your scores must be high. Do not provide positive feedback with low or zero scores.
+Scoring Guidelines:
+- 90–100: Excellent, accurate, and directly satisfies the request. A correct answer (such as '2 + 2 is 4') must receive high scores (90-100).
+- 70–89: Good, acceptable, minor flaws but largely correct.
+- 50–69: Partially correct or incomplete.
+- Below 50: Poor or mostly incorrect.
+- 0: Reserved strictly for completely irrelevant, empty, or entirely wrong outputs. Do NOT assign 0 to a correct response.
+
+Calculation Rules:
+- First, assign realistic integer scores from 0 to 100 for each of the four criteria.
+- Second, calculate the overall "score" as the arithmetic mean of the four criteria: (relevance + expected_output_alignment + expected_behavior + overall_quality) / 4, rounded to the nearest integer.
+- The overall "score" MUST agree with the criteria average.
+- Your written feedback MUST agree with your numeric scores.
 
 You must return ONLY a single valid JSON object with the following fields and types:
-- "score": an integer from 0 to 100 representing the overall average score.
-- "criteria_scores": a JSON object with exactly four numeric integer fields from 0 to 100:
+- "criteria_scores": a JSON object containing all four criteria with integer values from 0 to 100:
   - "relevance": integer from 0 to 100
   - "expected_output_alignment": integer from 0 to 100
   - "expected_behavior": integer from 0 to 100
   - "overall_quality": integer from 0 to 100
+- "score": an integer from 0 to 100 representing the arithmetic mean of the four criteria.
 - "feedback": a concise string explaining and justifying the scores based on evidence from the response.
 
 All four criteria in criteria_scores are strictly required.
@@ -71,52 +78,27 @@ def _extract_json(text):
     return None
 
 
-def evaluate_response(
-    *,
-    model,
-    input_text,
-    expected_output,
-    expected_behavior,
-    actual_output,
-):
+def get_judge_model() -> str:
     """
-    Evaluate one generated response using the selected Ollama model
-    as an LLM judge.
+    Returns the configured judge model from settings.EVALUATION_JUDGE_MODEL,
+    defaulting to 'gemma3:4b'.
     """
+    configured = getattr(settings, "EVALUATION_JUDGE_MODEL", None)
+    if configured and str(configured).strip():
+        return str(configured).strip()
+    return "gemma3:4b"
 
-    evaluation_prompt = f"""
-Evaluate the following LLM response.
 
-USER INPUT:
-{input_text}
+MAX_EVAL_ATTEMPTS = 2
 
-EXPECTED OUTPUT:
-{expected_output}
 
-EXPECTED BEHAVIOR:
-{expected_behavior}
-
-ACTUAL RESPONSE:
-{actual_output}
-
-Return the required JSON structure.
-"""
-
-    judge_result = run_ollama(
-        model=model,
-        user_prompt=evaluation_prompt,
-        system_prompt=JUDGE_SYSTEM_PROMPT,
-        format="json",
-        options={
-            "temperature": 0.2,
-            "num_predict": 512,
-        },
-    )
-
-    message = judge_result.get("message", {})
-    judge_output = message.get("content", "").strip()
-
-    if not judge_output:
+def _parse_and_validate_judge_response(judge_output):
+    """
+    Parse and validate the JSON output from the evaluator LLM judge.
+    Returns a dict with 'score', 'criteria_scores', and 'feedback'.
+    Raises ValueError with a specific diagnostic message on any error.
+    """
+    if not judge_output or not judge_output.strip():
         raise ValueError("The evaluator model returned an empty response.")
 
     data = _extract_json(judge_output)
@@ -205,6 +187,116 @@ Return the required JSON structure.
     }
 
 
+def evaluate_response(
+    *,
+    model,
+    input_text,
+    expected_output,
+    expected_behavior,
+    actual_output,
+):
+    """
+    Evaluate one generated response using the selected Ollama model
+    as an LLM judge, with bounded retry on invalid or inconsistent output.
+    """
+    clean_expected_output = (
+        expected_output.strip()
+        if expected_output and expected_output.strip()
+        else "(None provided — evaluate based on factual correctness and relevance to user input)"
+    )
+    clean_expected_behavior = (
+        expected_behavior.strip()
+        if expected_behavior and expected_behavior.strip()
+        else "(None provided — evaluate based on clarity, tone, and helpfulness)"
+    )
+
+    base_evaluation_prompt = f"""
+Evaluate the following LLM response.
+
+USER INPUT:
+{input_text}
+
+EXPECTED OUTPUT:
+{clean_expected_output}
+
+EXPECTED BEHAVIOR:
+{clean_expected_behavior}
+
+ACTUAL RESPONSE:
+{actual_output}
+
+Return the required JSON structure.
+"""
+
+    last_error = None
+    user_prompt = base_evaluation_prompt
+
+    for attempt in range(1, MAX_EVAL_ATTEMPTS + 1):
+        judge_result = run_ollama(
+            model=model,
+            user_prompt=user_prompt,
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            format="json",
+            options={
+                "temperature": 0.2,
+                "num_predict": 512,
+            },
+        )
+
+        message = judge_result.get("message", {})
+        judge_output = message.get("content", "").strip()
+
+        # Sanitized diagnostic logging (never log credentials, headers, or raw response content)
+        logger.info(
+            "Judge evaluation attempt %d/%d for model '%s' (response_chars=%d)",
+            attempt,
+            MAX_EVAL_ATTEMPTS,
+            model,
+            len(judge_output),
+        )
+
+        try:
+            parsed_result = _parse_and_validate_judge_response(judge_output)
+            parsed_result["judge_model"] = model
+            logger.info(
+                "Judge evaluation succeeded on attempt %d for model '%s': score=%s, criteria=%s",
+                attempt,
+                model,
+                parsed_result["score"],
+                parsed_result["criteria_scores"],
+            )
+            return parsed_result
+        except ValueError as exc:
+            last_error = str(exc)
+            logger.warning(
+                "Judge evaluation validation failed on attempt %d/%d for model '%s': %s",
+                attempt,
+                MAX_EVAL_ATTEMPTS,
+                model,
+                last_error,
+            )
+
+            if attempt < MAX_EVAL_ATTEMPTS:
+                user_prompt = f"""{base_evaluation_prompt}
+
+IMPORTANT CORRECTION REQUIRED:
+Your previous response was rejected due to the following validation error:
+{last_error}
+
+Previous response received:
+{judge_output}
+
+Please correct your evaluation:
+1. Each of the four criteria ('relevance', 'expected_output_alignment', 'expected_behavior', 'overall_quality') must be evaluated independently with an integer score from 0 to 100 based on the actual response quality.
+2. The overall 'score' MUST equal the exact average (arithmetic mean) of the four criteria scores.
+3. Return ONLY a valid JSON object matching the required schema.
+"""
+
+    raise ValueError(
+        f"Evaluator model '{model}' failed validation after {MAX_EVAL_ATTEMPTS} attempts: {last_error}"
+    )
+
+
 def run_evaluation(evaluation_run):
     """
     Execute every test case in an EvaluationRun,
@@ -229,6 +321,11 @@ def run_evaluation(evaluation_run):
     passed_cases = 0
     scores = []
     has_error = False
+
+    judge_model = evaluation_run.judge_model or get_judge_model()
+    if not evaluation_run.judge_model:
+        evaluation_run.judge_model = judge_model
+        evaluation_run.save(update_fields=["judge_model"])
 
     for idx, test_case in enumerate(test_cases):
 
@@ -293,9 +390,9 @@ def run_evaluation(evaluation_run):
                 total_output_tokens += execution.eval_count
                 has_output_tokens = True
 
-            # Evaluate the generated response
+            # Evaluate the generated response using the configured judge model
             evaluation = evaluate_response(
-                model=evaluation_run.model,
+                model=judge_model,
                 input_text=test_case.input_text,
                 expected_output=test_case.expected_output,
                 expected_behavior=test_case.expected_behavior,
@@ -319,6 +416,7 @@ def run_evaluation(evaluation_run):
                 evaluation_run=evaluation_run,
                 test_case=test_case,
                 execution=execution,
+                judge_model=judge_model,
                 status=result_status,
                 score=Decimal(str(round(score, 2))),
                 criteria_scores=evaluation["criteria_scores"],
@@ -342,6 +440,7 @@ def run_evaluation(evaluation_run):
                 evaluation_run=evaluation_run,
                 test_case=test_case,
                 execution=execution,
+                judge_model=judge_model,
                 status="error",
                 score=None,
                 criteria_scores={},

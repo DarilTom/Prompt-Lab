@@ -2,7 +2,7 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -990,3 +990,395 @@ class JudgeScoringServiceTests(TestCase):
         self.assertIsNone(res_err.score)
         self.assertEqual(res_err.criteria_scores, {})
         self.assertIn("Evaluator returned invalid JSON", res_err.feedback)
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_math_two_plus_two_correct_answer(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        mock_run_ollama.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "criteria_scores": {
+                        "relevance": 95,
+                        "expected_output_alignment": 95,
+                        "expected_behavior": 95,
+                        "overall_quality": 95,
+                    },
+                    "score": 95,
+                    "feedback": "The response '2 + 2 is 4.' directly and accurately answers the mathematical question.",
+                })
+            }
+        }
+
+        result = evaluate_response(
+            model="llama3.2:1b",
+            input_text="What is 2 + 2?",
+            expected_output="4",
+            expected_behavior="Concise and correct.",
+            actual_output="2 + 2 is 4.",
+        )
+
+        mock_run_ollama.assert_called_once()
+        self.assertEqual(result["score"], 95.0)
+        self.assertEqual(
+            result["criteria_scores"],
+            {
+                "relevance": 95.0,
+                "expected_output_alignment": 95.0,
+                "expected_behavior": 95.0,
+                "overall_quality": 95.0,
+            },
+        )
+        self.assertGreaterEqual(result["score"], 70)
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_retry_recovers_from_inconsistent_scores(
+        self, mock_run_ollama
+    ):
+        from apps.evaluations.services import evaluate_response
+
+        # Attempt 1: Inconsistent score (40 vs criteria average 0)
+        # Attempt 2: Corrected response (score 90 vs criteria average 90)
+        mock_run_ollama.side_effect = [
+            {
+                "message": {
+                    "content": json.dumps({
+                        "criteria_scores": {
+                            "relevance": 0,
+                            "expected_output_alignment": 0,
+                            "expected_behavior": 0,
+                            "overall_quality": 0,
+                        },
+                        "score": 40,
+                        "feedback": "Initial flawed evaluation.",
+                    })
+                }
+            },
+            {
+                "message": {
+                    "content": json.dumps({
+                        "criteria_scores": {
+                            "relevance": 90,
+                            "expected_output_alignment": 90,
+                            "expected_behavior": 90,
+                            "overall_quality": 90,
+                        },
+                        "score": 90,
+                        "feedback": "Corrected evaluation after prompt feedback.",
+                    })
+                }
+            },
+        ]
+
+        result = evaluate_response(
+            model="llama3.2:1b",
+            input_text="What is 2 + 2?",
+            expected_output="4",
+            expected_behavior="Accurate.",
+            actual_output="2 + 2 is 4.",
+        )
+
+        self.assertEqual(mock_run_ollama.call_count, 2)
+        second_call_kwargs = mock_run_ollama.call_args_list[1][1]
+        self.assertIn("IMPORTANT CORRECTION REQUIRED", second_call_kwargs["user_prompt"])
+        self.assertIn("contradicts", second_call_kwargs["user_prompt"])
+        self.assertEqual(result["score"], 90.0)
+        self.assertEqual(result["criteria_scores"]["relevance"], 90.0)
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_evaluate_response_fails_after_max_retries(self, mock_run_ollama):
+        from apps.evaluations.services import evaluate_response
+
+        # Both attempts return inconsistent scores
+        inconsistent_response = {
+            "message": {
+                "content": json.dumps({
+                    "criteria_scores": {
+                        "relevance": 0,
+                        "expected_output_alignment": 0,
+                        "expected_behavior": 0,
+                        "overall_quality": 0,
+                    },
+                    "score": 40,
+                    "feedback": "Persistent flawed evaluation.",
+                })
+            }
+        }
+        mock_run_ollama.side_effect = [inconsistent_response, inconsistent_response]
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_response(
+                model="llama3.2:1b",
+                input_text="What is 2 + 2?",
+                expected_output="4",
+                expected_behavior="Accurate.",
+                actual_output="2 + 2 is 4.",
+            )
+
+        self.assertEqual(mock_run_ollama.call_count, 2)
+        self.assertIn("failed validation after 2 attempts", str(ctx.exception).lower())
+        self.assertIn("contradicts", str(ctx.exception).lower())
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_run_evaluation_default_judge_model(self, mock_run_ollama):
+        from apps.evaluations.services import run_evaluation, get_judge_model
+
+        self.assertEqual(get_judge_model(), "gemma3:4b")
+
+        mock_run_ollama.side_effect = [
+            # Call 1: Generation from model under test (llama3.2:1b)
+            {
+                "message": {"content": "2 + 2 is 4."},
+                "total_duration": 1500000,
+                "prompt_eval_count": 12,
+                "eval_count": 18,
+            },
+            # Call 2: Evaluation from judge model (gemma3:4b)
+            {
+                "message": {
+                    "content": json.dumps({
+                        "criteria_scores": {
+                            "relevance": 95,
+                            "expected_output_alignment": 95,
+                            "expected_behavior": 95,
+                            "overall_quality": 95,
+                        },
+                        "score": 95,
+                        "feedback": "Accurate and concise.",
+                    })
+                }
+            },
+        ]
+
+        run = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            status=EvaluationRun.Status.RUNNING,
+        )
+
+        has_error = run_evaluation(run)
+        self.assertFalse(has_error)
+
+        # Verify call arguments
+        self.assertEqual(mock_run_ollama.call_count, 2)
+        gen_call = mock_run_ollama.call_args_list[0][1]
+        judge_call = mock_run_ollama.call_args_list[1][1]
+
+        self.assertEqual(gen_call["model"], "llama3.2:1b")
+        self.assertEqual(judge_call["model"], "gemma3:4b")
+
+        # Verify saved models
+        run.refresh_from_db()
+        self.assertEqual(run.model, "llama3.2:1b")
+        self.assertEqual(run.judge_model, "gemma3:4b")
+
+        result = run.results.first()
+        self.assertEqual(result.status, "passed")
+        self.assertEqual(float(result.score), 95.0)
+        self.assertEqual(result.judge_model, "gemma3:4b")
+        self.assertEqual(result.execution.model, "llama3.2:1b")
+
+    @override_settings(EVALUATION_JUDGE_MODEL="qwen3:4b")
+    @patch("apps.evaluations.services.run_ollama")
+    def test_run_evaluation_explicitly_configured_judge_model(self, mock_run_ollama):
+        from apps.evaluations.services import run_evaluation, get_judge_model
+
+        self.assertEqual(get_judge_model(), "qwen3:4b")
+
+        mock_run_ollama.side_effect = [
+            # Call 1: Generation from model under test (llama3.2:1b)
+            {
+                "message": {"content": "2 + 2 is 4."},
+                "total_duration": 1500000,
+                "prompt_eval_count": 12,
+                "eval_count": 18,
+            },
+            # Call 2: Evaluation from custom judge model (qwen3:4b)
+            {
+                "message": {
+                    "content": json.dumps({
+                        "criteria_scores": {
+                            "relevance": 90,
+                            "expected_output_alignment": 90,
+                            "expected_behavior": 90,
+                            "overall_quality": 90,
+                        },
+                        "score": 90,
+                        "feedback": "Good response.",
+                    })
+                }
+            },
+        ]
+
+        run = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            status=EvaluationRun.Status.RUNNING,
+        )
+
+        has_error = run_evaluation(run)
+        self.assertFalse(has_error)
+
+        self.assertEqual(mock_run_ollama.call_count, 2)
+        gen_call = mock_run_ollama.call_args_list[0][1]
+        judge_call = mock_run_ollama.call_args_list[1][1]
+
+        self.assertEqual(gen_call["model"], "llama3.2:1b")
+        self.assertEqual(judge_call["model"], "qwen3:4b")
+
+        run.refresh_from_db()
+        self.assertEqual(run.model, "llama3.2:1b")
+        self.assertEqual(run.judge_model, "qwen3:4b")
+
+        result = run.results.first()
+        self.assertEqual(result.judge_model, "qwen3:4b")
+        self.assertEqual(result.execution.model, "llama3.2:1b")
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_run_evaluation_persistent_invalid_judge_output_does_not_fallback(self, mock_run_ollama):
+        from apps.evaluations.services import run_evaluation
+
+        invalid_judge_response = {
+            "message": {
+                "content": json.dumps({
+                    "criteria_scores": {
+                        "relevance": 0,
+                        "expected_output_alignment": 0,
+                        "expected_behavior": 0,
+                        "overall_quality": 0,
+                    },
+                    "score": 40,
+                    "feedback": "Contradictory scores.",
+                })
+            }
+        }
+
+        mock_run_ollama.side_effect = [
+            # Call 1: Generation from model under test (llama3.2:1b)
+            {
+                "message": {"content": "2 + 2 is 4."},
+                "total_duration": 1500000,
+                "prompt_eval_count": 12,
+                "eval_count": 18,
+            },
+            # Call 2: Judge attempt 1 (gemma3:4b) - fails validation
+            invalid_judge_response,
+            # Call 3: Judge attempt 2 (gemma3:4b) - retry fails validation
+            invalid_judge_response,
+        ]
+
+        run = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            status=EvaluationRun.Status.RUNNING,
+        )
+
+        has_error = run_evaluation(run)
+        self.assertTrue(has_error)
+
+        # Call count is 1 generation + 2 judge retries = 3 total.
+        # No fallback call to llama3.2:1b as judge was made.
+        self.assertEqual(mock_run_ollama.call_count, 3)
+        self.assertEqual(mock_run_ollama.call_args_list[0][1]["model"], "llama3.2:1b")
+        self.assertEqual(mock_run_ollama.call_args_list[1][1]["model"], "gemma3:4b")
+        self.assertEqual(mock_run_ollama.call_args_list[2][1]["model"], "gemma3:4b")
+
+        result = run.results.first()
+        self.assertEqual(result.status, "error")
+        self.assertIsNone(result.score)
+        self.assertEqual(result.criteria_scores, {})
+        self.assertIn("failed validation after 2 attempts", result.feedback)
+        self.assertEqual(result.judge_model, "gemma3:4b")
+        self.assertEqual(result.execution.model, "llama3.2:1b")
+
+    @patch("apps.evaluations.services.run_ollama")
+    def test_run_evaluation_judge_service_failure_does_not_fallback(self, mock_run_ollama):
+        from apps.evaluations.services import run_evaluation
+
+        mock_run_ollama.side_effect = [
+            # Call 1: Generation succeeds from model under test (llama3.2:1b)
+            {
+                "message": {"content": "2 + 2 is 4."},
+                "total_duration": 1500000,
+                "prompt_eval_count": 12,
+                "eval_count": 18,
+            },
+            # Call 2: Judge service throws a runtime connection/service failure
+            RuntimeError("Ollama service unavailable: 503 Service Unavailable"),
+        ]
+
+        run = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            status=EvaluationRun.Status.RUNNING,
+        )
+
+        has_error = run_evaluation(run)
+        self.assertTrue(has_error)
+
+        # Call count is 2 (1 generation + 1 judge attempt that raised RuntimeError).
+        # No silent fallback was attempted.
+        self.assertEqual(mock_run_ollama.call_count, 2)
+        self.assertEqual(mock_run_ollama.call_args_list[0][1]["model"], "llama3.2:1b")
+        self.assertEqual(mock_run_ollama.call_args_list[1][1]["model"], "gemma3:4b")
+
+        result = run.results.first()
+        self.assertEqual(result.status, "error")
+        self.assertIsNone(result.score)
+        self.assertEqual(result.criteria_scores, {})
+        self.assertIn("503 Service Unavailable", result.feedback)
+        self.assertEqual(result.judge_model, "gemma3:4b")
+        self.assertEqual(result.execution.model, "llama3.2:1b")
+
+    def test_evaluation_serializers_include_judge_model(self):
+        from apps.evaluations.serializers import EvaluationRunSerializer, EvaluationResultSerializer
+
+        execution = Execution.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            model="llama3.2:1b",
+            input_text=self.test_case.input_text,
+            output_text="2 + 2 is 4.",
+            status="completed",
+        )
+
+        run = EvaluationRun.objects.create(
+            owner=self.user,
+            prompt=self.prompt,
+            prompt_version=self.prompt_version,
+            dataset=self.dataset,
+            model="llama3.2:1b",
+            judge_model="gemma3:4b",
+            status=EvaluationRun.Status.COMPLETED,
+        )
+        res = EvaluationResult.objects.create(
+            evaluation_run=run,
+            test_case=self.test_case,
+            execution=execution,
+            judge_model="gemma3:4b",
+            status="passed",
+            score=88.5,
+            criteria_scores={"relevance": 90, "expected_output_alignment": 88, "expected_behavior": 88, "overall_quality": 88},
+            feedback="Well done",
+        )
+
+        run_data = EvaluationRunSerializer(run).data
+        self.assertEqual(run_data["model"], "llama3.2:1b")
+        self.assertEqual(run_data["judge_model"], "gemma3:4b")
+
+        res_data = EvaluationResultSerializer(res).data
+        self.assertEqual(res_data["execution_model"], execution.model)
+        self.assertEqual(res_data["judge_model"], "gemma3:4b")
